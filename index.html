@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NexLab — Engineering Learning Platform</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <nav id="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-mark">◈</span>
+        <span class="brand-name">NexLab</span>
+      </div>
+      <ul class="nav-list">
+        <li><a href="#/dashboard" data-route="dashboard"><span class="nav-icon">◉</span>Home</a></li>
+        <li><a href="#/learn" data-route="learn"><span class="nav-icon">◈</span>Learn</a></li>
+        <li><a href="#/simulator" data-route="simulator"><span class="nav-icon">⚡</span>Simulator</a></li>
+        <li><a href="#/missions" data-route="missions"><span class="nav-icon">◎</span>Missions</a></li>
+        <li><a href="#/projects" data-route="projects"><span class="nav-icon">▣</span>Projects</a></li>
+        <li><a href="#/skills" data-route="skills"><span class="nav-icon">◬</span>Skill Graph</a></li>
+        <li><a href="#/mentor" data-route="mentor"><span class="nav-icon">◭</span>AI Mentor</a></li>
+        <li><a href="#/notebook" data-route="notebook"><span class="nav-icon">▤</span>Lab Notebook</a></li>
+        <li><a href="#/progress" data-route="progress"><span class="nav-icon">◍</span>Progress</a></li>
+      </ul>
+      <div class="sidebar-footer">
+        <div class="sim-status" id="sim-status">
+          <span class="status-dot"></span>
+          <span class="status-text">Simulator Ready</span>
+        </div>
+      </div>
+    </nav>
+    <main id="main-content">
+      <div id="view-container"></div>
+    </main>
+  </div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

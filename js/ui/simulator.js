@@ -1,0 +1,823 @@
+// NexLab — Circuit simulator: canvas editor, simulation controls, instruments
+
+import { buildNetlist, getLeads, serializeCircuit, deserializeCircuit } from '../engine/circuit.js';
+import { solveDC, solveTransient, equivalentResistance } from '../engine/solver.js';
+import { COMPONENT_DEFS, parseValue, formatValue } from '../engine/components.js';
+import { getState, saveState, updateState, addDiscovery } from '../state.js';
+
+let canvas, ctx;
+let components = [];
+let wires = [];
+let selectedComp = null;
+let selectedTool = 'select';
+let placingType = null;
+let simRunning = false;
+let simTime = 0;
+let simSpeed = 1;
+let simMode = 'dc';
+let dcSolution = null;
+let transientData = null;
+let animFrame = null;
+let panOffset = { x: 0, y: 0 };
+let zoom = 1;
+let wireStart = null;
+let mousePos = { x: 0, y: 0 };
+let probes = { red: null, black: null };
+let scopeChannels = [null, null, null, null];
+let scopeEnabled = [true, false, false, false];
+let scopeTime = 0;
+let scopeMaxTime = 1.0;
+let scopeDt = 1e-4;
+let scopeNodeHistory = new Map();
+let scopeTimePoints = [];
+let scopeRecording = false;
+let scopeVdiv = 2;
+let scopeTdiv = 0.1;
+let scopeColors = ['#00d4ff', '#ff6b6b', '#22c55e', '#f59e0b'];
+let simErrors = [];
+let simWarnings = [];
+let lastSimTime = 0;
+let simDt = 1e-4;
+let simTmax = 5;
+let simSpeedOptions = [0.1, 1, 10, 100];
+let simSpeedIndex = 1;
+let hintLevel = 0;
+let currentExperiment = null;
+let experimentStep = 0;
+let predictionValue = null;
+let predictionResult = null;
+let faultActive = null;
+let faultComponent = null;
+let branchHistory = [];
+let mentorMessages = [];
+let notebookEntry = null;
+
+export function initSimulator() {
+  const container = document.getElementById('view-container');
+  if (!container) return;
+
+  // Render simulator layout
+  const categories = {};
+  for (const [type, def] of Object.entries(COMPONENT_DEFS)) {
+    if (!categories[def.category]) categories[def.category] = [];
+    categories[def.category].push({ type, name: def.name });
+  }
+
+  container.innerHTML = `
+    <div class="sim-layout">
+      <div class="sim-palette">
+        <div class="palette-category">Tools</div>
+        <div class="palette-item" onclick="window.nexlabSetTool('select')"><span class="palette-icon">↖</span>Select</div>
+        <div class="palette-item" onclick="window.nexlabSetTool('wire')"><span class="palette-icon">╱</span>Wire</div>
+        <div class="palette-item" onclick="window.nexlabSetTool('delete')"><span class="palette-icon">✕</span>Delete</div>
+        <div class="palette-item" onclick="window.nexlabSetTool('probe')"><span class="palette-icon">●</span>Probe</div>
+        <div class="palette-item" onclick="window.nexlabDestroy()"><span class="palette-icon">🗑</span>Destroy</div>
+        ${Object.entries(categories).map(([cat, items]) => `
+          <div class="palette-category">${cat}</div>
+          ${items.map(i => `<div class="palette-item" onclick="window.nexlabAddComponent('${i.type}', 200, 200)"><span class="palette-icon">◈</span>${i.name}</div>`).join('')}
+        `).join('')}
+      </div>
+      <div class="sim-canvas-wrap">
+        <canvas id="sim-canvas" class="sim-canvas"></canvas>
+        <div class="sim-toolbar" id="sim-toolbar"></div>
+      </div>
+      <div class="sim-inspector" id="sim-inspector"></div>
+    </div>
+  `;
+
+  canvas = document.getElementById('sim-canvas');
+  if (!canvas) return;
+  ctx = canvas.getContext('2d');
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  setupEventListeners();
+  loadSimState();
+  render();
+}
+
+function resizeCanvas() {
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  canvas.width = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+  render();
+}
+
+let dragComp = null;
+let dragOffset = { x: 0, y: 0 };
+let selectedWire = null;
+
+function setupEventListeners() {
+  canvas.addEventListener('mousedown', onMouseDown);
+  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('mouseup', onMouseUp);
+  canvas.addEventListener('wheel', onWheel);
+  canvas.addEventListener('dblclick', onDblClick);
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.setAttribute('tabindex', '0');
+  canvas.focus();
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+}
+
+const keysDown = new Set();
+const MOVE_STEP = 20;
+
+function onKeyDown(e) {
+  const key = e.key.toLowerCase();
+  keysDown.add(key);
+  if (selectedComp && ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+    e.preventDefault();
+    moveSelectedComp(key);
+  }
+}
+
+function onKeyUp(e) {
+  keysDown.delete(e.key.toLowerCase());
+}
+
+function moveSelectedComp(key) {
+  if (!selectedComp) return;
+  switch (key) {
+    case 'w':
+    case 'arrowup':
+      selectedComp.y -= MOVE_STEP;
+      break;
+    case 's':
+    case 'arrowdown':
+      selectedComp.y += MOVE_STEP;
+      break;
+    case 'a':
+    case 'arrowleft':
+      selectedComp.x -= MOVE_STEP;
+      break;
+    case 'd':
+    case 'arrowright':
+      selectedComp.x += MOVE_STEP;
+      break;
+  }
+  selectedComp.x = snapToGrid(selectedComp.x);
+  selectedComp.y = snapToGrid(selectedComp.y);
+  saveSimState();
+  render();
+}
+
+function loadSimState() {
+  const state = getState();
+  if (state.simState.components.length > 0) {
+    components = state.simState.components;
+    wires = state.simState.wires;
+  }
+}
+
+function saveSimState() {
+  updateState(s => {
+    s.simState.components = components;
+    s.simState.wires = wires;
+    s.simState.running = simRunning;
+    s.simState.time = simTime;
+    s.simState.speed = simSpeed;
+    s.simState.mode = simMode;
+  });
+}
+
+function screenToWorld(sx, sy) {
+  return { x: (sx - panOffset.x) / zoom, y: (sy - panOffset.y) / zoom };
+}
+
+function worldToScreen(wx, wy) {
+  return { x: wx * zoom + panOffset.x, y: wy * zoom + panOffset.y };
+}
+
+function snapToGrid(v) { return Math.round(v / 20) * 20; }
+
+function onMouseDown(e) {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const w = screenToWorld(sx, sy);
+
+  if (selectedTool === 'wire') {
+    if (!wireStart) {
+      wireStart = { x: snapToGrid(w.x), y: snapToGrid(w.y) };
+    } else {
+      addWire([{ x: wireStart.x, y: wireStart.y }, { x: snapToGrid(w.x), y: snapToGrid(w.y) }]);
+      wireStart = null;
+    }
+  } else if (selectedTool === 'delete') {
+    const comp = findComponentAt(w.x, w.y);
+    if (comp) {
+      removeComponent(comp.id);
+    } else {
+      const wire = findWireAt(w.x, w.y);
+      if (wire) removeWire(wire.id);
+    }
+  } else if (selectedTool === 'probe') {
+    placeProbe(sx, sy);
+  } else {
+    const comp = findComponentAt(w.x, w.y);
+    if (comp) {
+      selectedComp = comp;
+      dragComp = comp;
+      dragOffset = { x: w.x - comp.x, y: w.y - comp.y };
+      if (comp.type === 'switch') {
+        comp.state = { ...comp.state, closed: !comp.state?.closed };
+        runSimulation();
+      }
+    } else {
+      const wire = findWireAt(w.x, w.y);
+      if (wire) {
+        selectedWire = wire;
+        dragOffset = { x: w.x, y: w.y };
+      } else {
+        selectedComp = null;
+        selectedWire = null;
+      }
+    }
+  }
+  render();
+}
+
+function onMouseMove(e) {
+  const rect = canvas.getBoundingClientRect();
+  mousePos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  if (dragComp) {
+    const w = screenToWorld(mousePos.x, mousePos.y);
+    dragComp.x = snapToGrid(w.x - dragOffset.x);
+    dragComp.y = snapToGrid(w.y - dragOffset.y);
+  } else if (selectedWire) {
+    const w = screenToWorld(mousePos.x, mousePos.y);
+    const dx = snapToGrid(w.x - dragOffset.x);
+    const dy = snapToGrid(w.y - dragOffset.y);
+    selectedWire.points = selectedWire.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+    dragOffset = { x: w.x, y: w.y };
+  }
+  render();
+}
+
+function onMouseUp() {
+  if (dragComp) {
+    dragComp = null;
+    saveSimState();
+  }
+}
+
+function onWheel(e) {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  zoom = Math.max(0.3, Math.min(3, zoom * delta));
+  render();
+}
+
+function onDblClick(e) {
+  const rect = canvas.getBoundingClientRect();
+  const w = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  const comp = findComponentAt(w.x, w.y);
+  if (comp && comp.type !== 'wire' && comp.type !== 'ground') editComponentValue(comp);
+}
+
+function findComponentAt(x, y) {
+  for (let i = components.length - 1; i >= 0; i--) {
+    const comp = components[i];
+    if (comp.type === 'wire') continue;
+    const leads = getLeads(comp);
+    for (const lead of leads) {
+      if (Math.hypot(lead.x - x, lead.y - y) < 20) return comp;
+    }
+    if (Math.abs(x - comp.x) < 40 && Math.abs(y - comp.y) < 30) return comp;
+  }
+  return null;
+}
+
+function findWireAt(x, y) {
+  for (let i = wires.length - 1; i >= 0; i--) {
+    const wire = wires[i];
+    const pts = wire.points;
+    for (let j = 0; j < pts.length - 1; j++) {
+      if (distToSegment(x, y, pts[j].x, pts[j].y, pts[j + 1].x, pts[j + 1].y) < 10) {
+        return wire;
+      }
+    }
+  }
+  return null;
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  let t = lenSq === 0 ? 0 : ((px - x1) * dx + (py - y1) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function removeWire(id) {
+  wires = wires.filter(w => w.id !== id);
+  saveSimState();
+  render();
+}
+
+export function addComponent(type, x, y) {
+  const def = COMPONENT_DEFS[type];
+  if (!def) return;
+  const comp = {
+    id: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    type, x: snapToGrid(x), y: snapToGrid(y), rotation: 0, params: {}, state: {},
+  };
+  for (const p of def.params) comp.params[p.key] = def.defaultValue;
+  if (type === 'switch') comp.state.closed = false;
+  components.push(comp);
+  saveSimState();
+  render();
+}
+
+function removeComponent(id) {
+  components = components.filter(c => c.id !== id);
+  if (selectedComp?.id === id) selectedComp = null;
+  saveSimState();
+  render();
+}
+
+function addWire(points) {
+  if (points.length < 2) return;
+  wires.push({ id: `w_${Date.now()}`, points });
+  saveSimState();
+  render();
+}
+
+function editComponentValue(comp) {
+  const def = COMPONENT_DEFS[comp.type];
+  if (!def || def.params.length === 0) return;
+  const param = def.params[0];
+  const input = prompt(`${param.label} (${param.unit}):`, comp.params[param.key]);
+  if (input !== null) {
+    const val = parseValue(input);
+    if (!isNaN(val)) {
+      comp.params[param.key] = input;
+      runSimulation();
+      saveSimState();
+    }
+  }
+}
+
+function placeProbe(sx, sy) {
+  const w = screenToWorld(sx, sy);
+  const netlist = buildNetlist(components, wires);
+  let nearestNet = null, minDist = Infinity;
+  for (const [netId, terms] of netlist.nets) {
+    for (const t of terms) {
+      const comp = components.find(c => c.id === t.compId);
+      if (!comp) continue;
+      const leads = getLeads(comp);
+      const lead = leads[t.termIdx];
+      if (!lead) continue;
+      const d = Math.hypot(lead.x - w.x, lead.y - w.y);
+      if (d < minDist) { minDist = d; nearestNet = netId; }
+    }
+  }
+  if (nearestNet !== null && minDist < 30) {
+    if (!probes.red) probes.red = nearestNet;
+    else if (!probes.black) probes.black = nearestNet;
+    else { probes.red = nearestNet; probes.black = null; }
+    render();
+  }
+}
+
+export function setTool(tool) { selectedTool = tool; placingType = null; render(); }
+export function setPlacingType(type) { placingType = type; selectedTool = 'place'; render(); }
+
+export function runSimulation() {
+  const netlist = buildNetlist(components, wires);
+  simErrors = netlist.errors;
+  simWarnings = netlist.warnings;
+  if (netlist.errors.length > 0) {
+    dcSolution = null; transientData = null;
+    updateSimStatus('error'); render(); return;
+  }
+  if (simMode === 'dc') {
+    dcSolution = solveDC(components, wires, netlist);
+    transientData = null;
+  } else {
+    transientData = solveTransient(components, wires, netlist, { tMax: simTmax, dt: simDt });
+    dcSolution = null;
+  }
+  lastSimTime = performance.now();
+  updateSimStatus('ready');
+  render();
+}
+
+export function toggleSimulation() {
+  simRunning = !simRunning;
+  if (simRunning) simLoop();
+  else cancelAnimationFrame(animFrame);
+  updateSimStatus(simRunning ? 'running' : 'ready');
+  render();
+}
+
+function simLoop() {
+  if (!simRunning) return;
+  const now = performance.now();
+  const dt = (now - lastSimTime) / 1000;
+  lastSimTime = now;
+  simTime += dt * simSpeed;
+  if (simMode === 'transient' && transientData) updateScopeData(dt * simSpeed);
+  render();
+  animFrame = requestAnimationFrame(simLoop);
+}
+
+function updateScopeData(dt) {
+  if (!scopeRecording) return;
+  scopeTime += dt;
+  if (scopeTime > scopeMaxTime) { scopeTime = 0; scopeTimePoints = []; scopeNodeHistory.clear(); }
+  const netlist = buildNetlist(components, wires);
+  for (let ch = 0; ch < 4; ch++) {
+    if (!scopeEnabled[ch] || scopeChannels[ch] === null) continue;
+    const sol = solveDC(components, wires, netlist);
+    if (sol.ok) {
+      const v = sol.nodeVoltages.get(scopeChannels[ch]) ?? 0;
+      if (!scopeNodeHistory.has(ch)) scopeNodeHistory.set(ch, []);
+      scopeNodeHistory.get(ch).push(v);
+    }
+  }
+  scopeTimePoints.push(scopeTime);
+}
+
+function updateSimStatus(status) {
+  const dot = document.querySelector('.status-dot');
+  const text = document.querySelector('.status-text');
+  if (!dot || !text) return;
+  dot.className = `status-dot ${status}`;
+  text.textContent = status === 'running' ? 'Simulating...' : status === 'error' ? 'Error' : 'Ready';
+}
+
+export function resetSimulation() { simRunning = false; cancelAnimationFrame(animFrame); simTime = 0; runSimulation(); }
+export function stepSimulation() { if (simMode !== 'transient') return; simTime += simDt * simSpeed; runSimulation(); }
+export function setSimSpeed(speed) { simSpeed = speed; saveSimState(); }
+export function setSimMode(mode) { simMode = mode; runSimulation(); saveSimState(); }
+export function setSimTmax(tmax) { simTmax = tmax; runSimulation(); }
+export function setSimDt(dt) { simDt = dt; runSimulation(); }
+export function setScopeVdiv(v) { scopeVdiv = v; render(); }
+export function setScopeTdiv(t) { scopeTdiv = t; render(); }
+export function setScopeChannel(ch, node) { scopeChannels[ch] = node; render(); }
+export function setScopeEnabled(ch, enabled) { scopeEnabled[ch] = enabled; render(); }
+
+function render() {
+  if (!ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawGrid(); drawWires(); drawComponents(); drawProbes(); drawWirePreview();
+  updateInspector(); updateToolbar();
+}
+
+function drawGrid() {
+  ctx.strokeStyle = '#111827'; ctx.lineWidth = 1;
+  const step = 20 * zoom;
+  const ox = panOffset.x % step, oy = panOffset.y % step;
+  for (let x = ox; x < canvas.width; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+  for (let y = oy; y < canvas.height; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+}
+
+function drawWires() {
+  ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  for (const wire of wires) {
+    if (wire.points.length < 2) continue;
+    ctx.beginPath();
+    const p0 = worldToScreen(wire.points[0].x, wire.points[0].y);
+    ctx.moveTo(p0.x, p0.y);
+    for (let i = 1; i < wire.points.length; i++) {
+      const p = worldToScreen(wire.points[i].x, wire.points[i].y);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawComponents() {
+  for (const comp of components) {
+    const pos = worldToScreen(comp.x, comp.y);
+    ctx.save(); ctx.translate(pos.x, pos.y); ctx.rotate((comp.rotation || 0) * Math.PI / 2);
+    if (selectedComp?.id === comp.id) { ctx.shadowColor = '#00d4ff'; ctx.shadowBlur = 10; }
+    drawComponentBody(comp);
+    ctx.restore();
+    ctx.fillStyle = '#8892a8'; ctx.font = '10px Inter, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(COMPONENT_DEFS[comp.type]?.name ?? comp.type, pos.x, pos.y + 35);
+    const def = COMPONENT_DEFS[comp.type];
+    if (def && def.params.length > 0) {
+      const param = def.params[0];
+      ctx.fillStyle = '#00d4ff'; ctx.font = '11px "Cascadia Code", monospace';
+      ctx.fillText(`${comp.params[param.key]}${param.unit}`, pos.x, pos.y + 48);
+    }
+    if (dcSolution && dcSolution.ok) {
+      const I = dcSolution.branchCurrents.get(comp.id);
+      const P = dcSolution.powers.get(comp.id);
+      if (I !== undefined && Math.abs(I) > 1e-9) { ctx.fillStyle = '#22c55e'; ctx.font = '10px "Cascadia Code", monospace'; ctx.fillText(`I=${formatValue(I, 'A')}`, pos.x, pos.y - 35); }
+      if (P !== undefined && Math.abs(P) > 1e-6) { ctx.fillStyle = '#f59e0b'; ctx.fillText(`P=${formatValue(P, 'W')}`, pos.x, pos.y - 48); }
+    }
+  }
+}
+
+function drawComponentBody(comp) {
+  switch (comp.type) {
+    case 'dc_source': drawDCSource(); break;
+    case 'resistor': drawResistor(); break;
+    case 'capacitor': drawCapacitor(); break;
+    case 'led': drawLED(comp); break;
+    case 'diode': drawDiode(comp); break;
+    case 'switch': drawSwitch(comp); break;
+    case 'ground': drawGround(); break;
+    default: ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 2; ctx.strokeRect(-15, -10, 30, 20);
+  }
+}
+
+function drawDCSource() {
+  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#00d4ff'; ctx.font = 'bold 14px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('+', 0, -6); ctx.fillText('−', 0, 8);
+  ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-18, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(40, 0); ctx.stroke();
+}
+
+function drawResistor() {
+  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-20, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(40, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-20, 0);
+  for (let i = 0; i < 6; i++) { ctx.lineTo(-20 + (i + 0.5) * (40 / 6), i % 2 === 0 ? -8 : 8); }
+  ctx.lineTo(20, 0); ctx.stroke();
+}
+
+function drawCapacitor() {
+  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-5, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(5, 0); ctx.lineTo(40, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-5, -12); ctx.lineTo(-5, 12); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(5, -12); ctx.lineTo(5, 12); ctx.stroke();
+}
+
+function drawLED(comp) {
+  // LED: diode symbol with light emission arrows
+  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-15, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(40, 0); ctx.stroke();
+  // Diode triangle
+  ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(-15, 10); ctx.lineTo(15, 0); ctx.closePath(); ctx.stroke();
+  // Diode bar
+  ctx.beginPath(); ctx.moveTo(15, -10); ctx.lineTo(15, 10); ctx.stroke();
+  // Light emission arrows (LED-specific)
+  const I = dcSolution?.branchCurrents.get(comp.id) ?? 0;
+  if (I > 0.001) {
+    ctx.strokeStyle = '#ff6b6b'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-5, -15); ctx.lineTo(5, -22); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(5, -15); ctx.lineTo(15, -22); ctx.stroke();
+    // Glow
+    ctx.shadowColor = '#ff6b6b'; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function drawDiode(comp) {
+  // Standard diode: triangle + bar, no light arrows
+  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-15, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(40, 0); ctx.stroke();
+  // Diode triangle
+  ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(-15, 10); ctx.lineTo(15, 0); ctx.closePath(); ctx.stroke();
+  // Diode bar
+  ctx.beginPath(); ctx.moveTo(15, -10); ctx.lineTo(15, 10); ctx.stroke();
+}
+
+function drawSwitch(comp) {
+  const closed = comp.state?.closed ?? false;
+  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-15, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(40, 0); ctx.stroke();
+  ctx.beginPath(); ctx.arc(-15, 0, 3, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(15, 0, 3, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-15, 0); ctx.lineTo(closed ? 15 : 12, closed ? 0 : -12); ctx.stroke();
+}
+
+function drawGround() {
+  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(0, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-15, 0); ctx.lineTo(15, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-10, 5); ctx.lineTo(10, 5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-5, 10); ctx.lineTo(5, 10); ctx.stroke();
+}
+
+function drawProbes() {
+  const netlist = buildNetlist(components, wires);
+  for (const [color, netId] of [['#ef4444', probes.red], ['#1f2937', probes.black]]) {
+    if (netId === null) continue;
+    const terms = netlist.nets.get(netId);
+    if (!terms || terms.length === 0) continue;
+    const comp = components.find(c => c.id === terms[0].compId);
+    if (!comp) continue;
+    const leads = getLeads(comp);
+    const lead = leads[terms[0].termIdx];
+    if (!lead) continue;
+    const pos = worldToScreen(lead.x, lead.y);
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2); ctx.fill();
+    if (color === '#1f2937') { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke(); }
+  }
+}
+
+function drawWirePreview() {
+  if (selectedTool === 'wire' && wireStart) {
+    const start = worldToScreen(wireStart.x, wireStart.y);
+    ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(mousePos.x, mousePos.y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function updateInspector() {
+  const panel = document.getElementById('sim-inspector');
+  if (!panel) return;
+  let html = '<div class="card"><div class="card-header"><span class="card-title">Inspector</span></div>';
+  if (selectedComp) {
+    const def = COMPONENT_DEFS[selectedComp.type];
+    html += `<div class="notebook-field"><label>Type</label><div>${def?.name ?? selectedComp.type}</div></div>`;
+    if (def && def.params.length > 0) {
+      for (const param of def.params) {
+        html += `<div class="notebook-field"><label>${param.label} (${param.unit})</label>`;
+        html += `<input type="text" value="${selectedComp.params[param.key]}" onchange="window.nexlabUpdateParam('${selectedComp.id}', '${param.key}', this.value)" style="width:100%"></div>`;
+      }
+    }
+    if (dcSolution && dcSolution.ok) {
+      const I = dcSolution.branchCurrents.get(selectedComp) ?? 0;
+      const P = dcSolution.powers.get(selectedComp) ?? 0;
+      html += `<div class="notebook-field"><label>Current</label><div class="mono text-success">${formatValue(I, 'A')}</div></div>`;
+      html += `<div class="notebook-field"><label>Power</label><div class="mono text-warning">${formatValue(P, 'W')}</div></div>`;
+    }
+  } else {
+    html += '<p class="text-muted" style="font-size:12px">Select a component to inspect.</p>';
+  }
+  html += '<div class="notebook-field"><label>Probes</label><div style="display:flex;gap:8px;align-items:center">';
+  html += '<span style="color:#ef4444">●</span><span style="font-size:11px">' + (probes.red !== null ? 'Net ' + probes.red : 'Not placed') + '</span>';
+  html += '<span style="color:#1f2937;margin-left:8px">●</span><span style="font-size:11px">' + (probes.black !== null ? 'Net ' + probes.black : 'Not placed') + '</span></div></div>';
+  if (probes.red !== null && probes.black !== null && dcSolution && dcSolution.ok) {
+    const V = (dcSolution.nodeVoltages.get(probes.red) ?? 0) - (dcSolution.nodeVoltages.get(probes.black) ?? 0);
+    html += '<div class="instrument-display" style="font-size:20px">' + formatValue(V, 'V') + '</div>';
+  }
+  if (simErrors.length > 0) {
+    html += '<div class="notebook-field"><label class="text-danger">Errors</label>';
+    for (const err of simErrors) html += `<div class="text-danger" style="font-size:11px">⚠ ${err}</div>`;
+    html += '</div>';
+  }
+  html += '</div>';
+  panel.innerHTML = html;
+}
+
+function updateToolbar() {
+  const toolbar = document.getElementById('sim-toolbar');
+  if (!toolbar) return;
+  toolbar.innerHTML = `
+    <button class="btn ${simRunning ? 'active' : ''}" onclick="window.nexlabToggleSim()">${simRunning ? '⏸' : '▶'} ${simRunning ? 'Pause' : 'Run'}</button>
+    <button class="btn" onclick="window.nexlabResetSim()">⟳ Reset</button>
+    <button class="btn" onclick="window.nexlabStepSim()">⏭ Step</button>
+    <button class="btn ${simMode === 'dc' ? 'active' : ''}" onclick="window.nexlabSetMode('dc')">DC</button>
+    <button class="btn ${simMode === 'transient' ? 'active' : ''}" onclick="window.nexlabSetMode('transient')">Transient</button>
+    <button class="btn" onclick="window.nexlabSetSpeed(${simSpeedOptions[(simSpeedIndex + 1) % simSpeedOptions.length]})">Speed: ${simSpeed}×</button>
+    <button class="btn btn-danger" onclick="window.nexlabDestroy()">🗑 Destroy</button>
+  `;
+}
+
+export function destroyCircuit() {
+  components = [];
+  wires = [];
+  selectedComp = null;
+  selectedWire = null;
+  dragComp = null;
+  dcSolution = null;
+  transientData = null;
+  simErrors = [];
+  simWarnings = [];
+  saveSimState();
+  render();
+}
+
+export function getComponents() { return components; }
+export function getWires() { return wires; }
+export function getDCSolution() { return dcSolution; }
+export function getTransientData() { return transientData; }
+export function getSimTime() { return simTime; }
+export function getSimRunning() { return simRunning; }
+export function getProbes() { return probes; }
+export function getScopeData() { return { timePoints: scopeTimePoints, nodeHistory: scopeNodeHistory }; }
+export function getScopeChannels() { return scopeChannels; }
+export function getScopeEnabled() { return scopeEnabled; }
+export function getScopeColors() { return scopeColors; }
+export function getScopeVdiv() { return scopeVdiv; }
+export function getScopeTdiv() { return scopeTdiv; }
+export function getSimErrors() { return simErrors; }
+export function getSimWarnings() { return simWarnings; }
+export function getSimMode() { return simMode; }
+export function getSimSpeed() { return simSpeed; }
+export function getSimTmax() { return simTmax; }
+export function getSimDt() { return simDt; }
+export function getScopeTime() { return scopeTime; }
+export function getScopeMaxTime() { return scopeMaxTime; }
+export function getScopeDt() { return scopeDt; }
+export function getScopeRecording() { return scopeRecording; }
+export function getScopeNodeHistory() { return scopeNodeHistory; }
+export function getScopeTimePoints() { return scopeTimePoints; }
+
+export function setComponentValue(compId, key, value) {
+  const comp = components.find(c => c.id === compId);
+  if (comp) { comp.params[key] = value; runSimulation(); saveSimState(); }
+}
+
+export function clearProbes() { probes = { red: null, black: null }; render(); }
+
+export function exportCircuit() { return serializeCircuit(components, wires); }
+
+export function importCircuit(json) {
+  try {
+    const data = deserializeCircuit(json);
+    components = data.components; wires = data.wires;
+    runSimulation(); saveSimState(); render();
+  } catch (e) { console.error('Failed to import circuit:', e); }
+}
+
+export function clearCircuit() {
+  components = []; wires = []; selectedComp = null;
+  probes = { red: null, black: null };
+  dcSolution = null; transientData = null;
+  simErrors = []; simWarnings = [];
+  saveSimState(); render();
+}
+
+export function loadExperimentSetup(setup) {
+  components = structuredClone(setup.components);
+  wires = structuredClone(setup.wires);
+  selectedComp = null; probes = { red: null, black: null };
+  dcSolution = null; transientData = null;
+  runSimulation(); saveSimState(); render();
+}
+
+export function injectFault(faultType, componentId) {
+  const comp = components.find(c => c.id === componentId);
+  if (!comp) return;
+  faultActive = faultType; faultComponent = componentId;
+  switch (faultType) {
+    case 'open': comp.state = { ...comp.state, faulty: true, open: true }; break;
+    case 'short': comp.state = { ...comp.state, faulty: true, short: true }; break;
+    case 'value-drift':
+      if (comp.type === 'resistor') { const current = parseValue(comp.params.resistance); comp.params.resistance = String(current * 10); }
+      comp.state = { ...comp.state, faulty: true }; break;
+    case 'reversed': comp.rotation = ((comp.rotation || 0) + 2) % 4; comp.state = { ...comp.state, faulty: true }; break;
+  }
+  runSimulation(); render();
+}
+
+export function clearFault() {
+  if (faultComponent) {
+    const comp = components.find(c => c.id === faultComponent);
+    if (comp) comp.state = { ...comp.state, faulty: false, open: false, short: false };
+  }
+  faultActive = null; faultComponent = null;
+  runSimulation(); render();
+}
+
+export function getFaultState() { return { active: faultActive, component: faultComponent }; }
+
+export function startScopeRecording() { scopeRecording = true; scopeTime = 0; scopeTimePoints = []; scopeNodeHistory.clear(); }
+export function stopScopeRecording() { scopeRecording = false; }
+export function resetScope() { scopeTime = 0; scopeTimePoints = []; scopeNodeHistory.clear(); render(); }
+
+export function getScopeStats() {
+  const stats = new Map();
+  for (let ch = 0; ch < 4; ch++) {
+    if (!scopeEnabled[ch]) continue;
+    const data = scopeNodeHistory.get(ch);
+    if (!data || data.length === 0) continue;
+    const min = Math.min(...data), max = Math.max(...data);
+    const mean = data.reduce((s, v) => s + v, 0) / data.length;
+    const vpp = max - min;
+    const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length);
+    let crossings = 0;
+    for (let i = 1; i < data.length; i++) { if ((data[i - 1] < mean && data[i] >= mean) || (data[i - 1] >= mean && data[i] < mean)) crossings++; }
+    const duration = scopeTimePoints.length > 1 ? scopeTimePoints[scopeTimePoints.length - 1] - scopeTimePoints[0] : 1;
+    const freq = crossings / (2 * duration);
+    stats.set(ch, { min, max, mean, vpp, rms, freq });
+  }
+  return stats;
+}
+
+export function addBranch(name, circuitJson) { branchHistory.push({ name, circuit: circuitJson, timestamp: Date.now() }); }
+export function getBranches() { return branchHistory; }
+export function setHintLevel(level) { hintLevel = level; }
+export function getHintLevel() { return hintLevel; }
+export function setCurrentExperiment(exp) { currentExperiment = exp; }
+export function getCurrentExperiment() { return currentExperiment; }
+export function setExperimentStep(step) { experimentStep = step; }
+export function getExperimentStep() { return experimentStep; }
+export function setPredictionValue(val) { predictionValue = val; }
+export function getPredictionValue() { return predictionValue; }
+export function setPredictionResult(res) { predictionResult = res; }
+export function getPredictionResult() { return predictionResult; }
+export function addMentorMessage(msg) { mentorMessages.push(msg); }
+export function getMentorMessages() { return mentorMessages; }
+export function setNotebookEntry(entry) { notebookEntry = entry; }
+export function getNotebookEntry() { return notebookEntry; }
