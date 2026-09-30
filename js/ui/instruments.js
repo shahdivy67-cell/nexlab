@@ -1,7 +1,7 @@
 // NexLab — Virtual instruments: multimeter and oscilloscope
 
-import { getDCSolution, getScopeData, getScopeChannels, getScopeEnabled, getScopeColors, getScopeVdiv, getScopeTdiv, getScopeTimePoints, getScopeNodeHistory, getProbes, getComponents, getWires } from './simulator.js';
-import { buildNetlist, getLeads } from '../engine/circuit.js';
+import { getDCSolution, getScopeData, getScopeChannels, getScopeEnabled, getScopeColors, getScopeVdiv, getScopeTdiv, getScopeTimePoints, getScopeNodeHistory, getProbes, getComponents, getWires } from './simulator.js?v=4';
+import { buildNetlist, getLeads } from '../engine/circuit.js?v=4';
 import { equivalentResistance } from '../engine/solver.js';
 import { formatValue, parseValue } from '../engine/components.js';
 

@@ -51,6 +51,7 @@ const FOOTPRINTS = {
   resistor:  { leads: [[-40, 0], [40, 0]], body: 'rect' },
   capacitor: { leads: [[-40, 0], [40, 0]], body: 'plates' },
   led:       { leads: [[-40, 0], [40, 0]], body: 'diode' },
+  diode:     { leads: [[-40, 0], [40, 0]], body: 'diode' },
   switch:    { leads: [[-40, 0], [40, 0]], body: 'switch' },
   ground:    { leads: [[0, 0]], body: 'ground' },
   wire:      { leads: [], body: 'wire' },

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NexLab — Engineering Learning Platform</title>
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=2">
 </head>
 <body>
   <div id="app">
@@ -32,9 +32,29 @@
       </div>
     </nav>
     <main id="main-content">
-      <div id="view-container"></div>
+      <div id="view-container"><div id="boot-msg" style="padding:24px;color:#8892a8">Loading NexLab (build v3)…</div></div>
     </main>
   </div>
-  <script type="module" src="js/main.js"></script>
+  <script>
+    // Boot diagnostics: if the app module fails, show the reason on the page itself.
+    (function () {
+      function show(msg) {
+        var el = document.getElementById('boot-msg');
+        if (!el) return;
+        el.innerHTML = 'NexLab failed to start (build v3):<br><br>'
+          + '<div style="color:#ef4444;font-family:monospace;font-size:12px">' + msg + '</div>'
+          + '<br><div style="font-size:12px">Check that the server is running and hard-refresh (Ctrl+Shift+R).</div>';
+      }
+      window.addEventListener('error', function (e) {
+        var f = (e.filename || '').split('/').pop();
+        show('Error: ' + (e.message || e.type) + (f ? ' @ ' + f + ':' + e.lineno : ''));
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e.reason;
+        show('Error: ' + (r && r.message ? r.message : String(r)));
+      });
+    })();
+  </script>
+  <script type="module" src="js/main.js?v=4"></script>
 </body>
 </html>

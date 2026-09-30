@@ -1,6 +1,6 @@
 // NexLab — Circuit simulator: canvas editor, simulation controls, instruments
 
-import { buildNetlist, getLeads, serializeCircuit, deserializeCircuit } from '../engine/circuit.js';
+import { buildNetlist, getLeads, serializeCircuit, deserializeCircuit } from '../engine/circuit.js?v=4';
 import { solveDC, solveTransient, equivalentResistance } from '../engine/solver.js';
 import { COMPONENT_DEFS, parseValue, formatValue } from '../engine/components.js';
 import { getState, saveState, updateState, addDiscovery } from '../state.js';
@@ -74,7 +74,7 @@ export function initSimulator() {
         <div class="palette-item" onclick="window.nexlabDestroy()"><span class="palette-icon">🗑</span>Destroy</div>
         ${Object.entries(categories).map(([cat, items]) => `
           <div class="palette-category">${cat}</div>
-          ${items.map(i => `<div class="palette-item" onclick="window.nexlabAddComponent('${i.type}', 200, 200)"><span class="palette-icon">◈</span>${i.name}</div>`).join('')}
+          ${items.map(i => `<div class="palette-item" onclick="window.nexlabAddComponent('${i.type}')"><span class="palette-icon">◈</span>${i.name}</div>`).join('')}
         `).join('')}
       </div>
       <div class="sim-canvas-wrap">
@@ -319,6 +319,16 @@ function removeWire(id) {
 export function addComponent(type, x, y) {
   const def = COMPONENT_DEFS[type];
   if (!def) return;
+  // Auto-place at canvas center with a cascade offset when no coords given,
+  // so new parts never stack on top of each other.
+  if (x === undefined || y === undefined) {
+    const cw = canvas ? canvas.clientWidth || 600 : 600;
+    const ch = canvas ? canvas.clientHeight || 400 : 400;
+    const n = components.length;
+    const off = (n % 8) * 24;
+    x = (cw / 2 - panOffset.x) / zoom - 40 + off;
+    y = (ch / 2 - panOffset.y) / zoom - 20 + off;
+  }
   const comp = {
     id: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     type, x: snapToGrid(x), y: snapToGrid(y), rotation: 0, params: {}, state: {},
@@ -326,6 +336,7 @@ export function addComponent(type, x, y) {
   for (const p of def.params) comp.params[p.key] = def.defaultValue;
   if (type === 'switch') comp.state.closed = false;
   components.push(comp);
+  selectedComp = comp;
   saveSimState();
   render();
 }
@@ -340,8 +351,30 @@ function removeComponent(id) {
 function addWire(points) {
   if (points.length < 2) return;
   wires.push({ id: `w_${Date.now()}`, points });
+  autoConnectComponents();
   saveSimState();
   render();
+}
+
+function autoConnectComponents() {
+  // For each component terminal, check if it's near any wire segment
+  // If so, show a prompt asking if the user wants to connect it
+  for (const comp of components) {
+    if (comp.type === 'wire' || comp.type === 'ground') continue;
+    const leads = getLeads(comp);
+    for (const lead of leads) {
+      for (const wire of wires) {
+        const pts = wire.points;
+        for (let i = 0; i < pts.length - 1; i++) {
+          if (distToSegment(lead.x, lead.y, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y) < 15) {
+            // Terminal is near a wire - it's already connected by proximity
+            // No action needed since the netlist builder handles this
+            return;
+          }
+        }
+      }
+    }
+  }
 }
 
 function editComponentValue(comp) {

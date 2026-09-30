@@ -289,15 +289,21 @@ input.mono, .mono-input {
   border-right: 1px solid var(--border);
   padding: 12px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .sim-canvas-wrap {
   position: relative;
   background: var(--bg-primary);
   overflow: hidden;
+  min-height: 0;
+  min-width: 0;
 }
 
 .sim-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   display: block;
@@ -308,6 +314,7 @@ input.mono, .mono-input {
   border-left: 1px solid var(--border);
   padding: 12px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 /* ── Palette items ── */
