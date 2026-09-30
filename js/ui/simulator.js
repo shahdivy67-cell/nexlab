@@ -51,6 +51,8 @@ let faultComponent = null;
 let branchHistory = [];
 let mentorMessages = [];
 let notebookEntry = null;
+let viewMode = '2d';
+let sim3dMod = null;
 
 export function initSimulator() {
   const container = document.getElementById('view-container');
@@ -79,6 +81,7 @@ export function initSimulator() {
       </div>
       <div class="sim-canvas-wrap">
         <canvas id="sim-canvas" class="sim-canvas"></canvas>
+        <div id="sim-3d" class="sim-3d" style="display:none"></div>
         <div class="sim-toolbar" id="sim-toolbar"></div>
       </div>
       <div class="sim-inspector" id="sim-inspector"></div>
@@ -417,6 +420,30 @@ function placeProbe(sx, sy) {
 
 export function setTool(tool) { selectedTool = tool; placingType = null; render(); }
 export function setPlacingType(type) { placingType = type; selectedTool = 'place'; render(); }
+export function getViewMode() { return viewMode; }
+export function selectComponent(id) {
+  selectedComp = components.find(c => c.id === id) || null;
+  saveSimState();
+  render();
+}
+export async function setViewMode(mode) {
+  viewMode = mode;
+  const c2d = document.getElementById('sim-canvas');
+  const c3d = document.getElementById('sim-3d');
+  if (mode === '3d') {
+    if (c2d) c2d.style.display = 'none';
+    if (c3d) {
+      c3d.style.display = 'block';
+      if (!sim3dMod) sim3dMod = await import('./sim3d.js');
+      sim3dMod.start3D(c3d);
+    }
+  } else {
+    if (sim3dMod) sim3dMod.stop3D();
+    if (c3d) c3d.style.display = 'none';
+    if (c2d) { c2d.style.display = 'block'; resizeCanvas(); }
+  }
+  render();
+}
 
 export function runSimulation() {
   const netlist = buildNetlist(components, wires);
@@ -498,6 +525,7 @@ function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawGrid(); drawWires(); drawComponents(); drawProbes(); drawWirePreview();
   updateInspector(); updateToolbar();
+  if (viewMode === '3d' && sim3dMod) sim3dMod.refresh3D();
 }
 
 function drawGrid() {
@@ -711,6 +739,8 @@ function updateToolbar() {
     <button class="btn" onclick="window.nexlabStepSim()">⏭ Step</button>
     <button class="btn ${simMode === 'dc' ? 'active' : ''}" onclick="window.nexlabSetMode('dc')">DC</button>
     <button class="btn ${simMode === 'transient' ? 'active' : ''}" onclick="window.nexlabSetMode('transient')">Transient</button>
+    <button class="btn ${viewMode === '2d' ? 'active' : ''}" onclick="window.nexlabSetView('2d')">2D</button>
+    <button class="btn ${viewMode === '3d' ? 'active' : ''}" onclick="window.nexlabSetView('3d')">3D</button>
     <button class="btn" onclick="window.nexlabSetSpeed(${simSpeedOptions[(simSpeedIndex + 1) % simSpeedOptions.length]})">Speed: ${simSpeed}×</button>
     <button class="btn btn-danger" onclick="window.nexlabDestroy()">🗑 Destroy</button>
   `;

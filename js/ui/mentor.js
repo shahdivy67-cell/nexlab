@@ -2,7 +2,7 @@
 // Reads simulation state, experiment progress, and skill graph to guide students.
 
 import { getState, getSkillLevel, getIntuitionAccuracy, recordPrediction, addDiscovery } from '../state.js';
-import { getDCSolution, getComponents, getWires, getProbes, getSimErrors, getFaultState, getCurrentExperiment, getHintLevel, setHintLevel } from './simulator.js?v=4';
+import { getDCSolution, getComponents, getWires, getProbes, getSimErrors, getFaultState, getCurrentExperiment, getHintLevel, setHintLevel } from './simulator.js?v=5';
 import { buildNetlist } from '../engine/circuit.js?v=4';
 import { formatValue } from '../engine/components.js';
 

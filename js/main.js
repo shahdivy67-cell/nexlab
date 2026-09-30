@@ -3,7 +3,7 @@
 import { getState, saveState, updateState, resetState, addNotebookEntry, addDiscovery } from './state.js';
 import { renderDashboard } from './ui/dashboard.js';
 import { renderLearn, renderConceptDetail } from './ui/learn.js';
-import { initSimulator, runSimulation, toggleSimulation, resetSimulation, stepSimulation, setSimSpeed, setSimMode, setTool, setPlacingType, addComponent, clearCircuit, destroyCircuit, loadExperimentSetup, injectFault, clearFault, setComponentValue, clearProbes, exportCircuit, importCircuit, startScopeRecording, stopScopeRecording, resetScope, setScopeVdiv, setScopeTdiv, setScopeChannel, setScopeEnabled, getComponents, getWires, getDCSolution, getProbes, getSimErrors, getFaultState, getScopeData, getScopeChannels, getScopeEnabled, getScopeColors, getScopeVdiv, getScopeTdiv, getScopeTimePoints, getScopeNodeHistory, getSimTime, getSimRunning, getSimMode, getSimSpeed, getSimTmax, getSimDt, getScopeTime, getScopeMaxTime, getScopeDt, getScopeRecording } from './ui/simulator.js?v=4';
+import { initSimulator, runSimulation, toggleSimulation, resetSimulation, stepSimulation, setSimSpeed, setSimMode, setTool, setPlacingType, setViewMode, addComponent, clearCircuit, destroyCircuit, loadExperimentSetup, injectFault, clearFault, setComponentValue, clearProbes, exportCircuit, importCircuit, startScopeRecording, stopScopeRecording, resetScope, setScopeVdiv, setScopeTdiv, setScopeChannel, setScopeEnabled, getComponents, getWires, getDCSolution, getProbes, getSimErrors, getFaultState, getScopeData, getScopeChannels, getScopeEnabled, getScopeColors, getScopeVdiv, getScopeTdiv, getScopeTimePoints, getScopeNodeHistory, getSimTime, getSimRunning, getSimMode, getSimSpeed, getSimTmax, getSimDt, getScopeTime, getScopeMaxTime, getScopeDt, getScopeRecording } from './ui/simulator.js?v=5';
 import { initInstruments, setMultimeterMode, updateMultimeter, drawScope, toggleScope, resetScope as resetScopeUI, getScopeStats } from './ui/instruments.js';
 import { initMentor, renderMentor, askMentor, getMentorMessages } from './ui/mentor.js';
 import { renderNotebook, createNotebookEntry, exportNotebook } from './ui/notebook.js';
@@ -56,6 +56,7 @@ window.nexlabStepSim = stepSimulation;
 window.nexlabSetSpeed = setSimSpeed;
 window.nexlabSetMode = setSimMode;
 window.nexlabSetTool = setTool;
+window.nexlabSetView = setViewMode;
 window.nexlabSetPlacingType = setPlacingType;
 window.nexlabAddComponent = addComponent;
 window.nexlabClearCircuit = clearCircuit;
