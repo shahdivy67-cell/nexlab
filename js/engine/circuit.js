@@ -3,7 +3,7 @@
 // wire segments). Ground symbols always belong to the global reference net.
 
 export const SNAP = 20; // grid size in canvas pixels
-const CONNECT_EPS = 6;  // px distance considered "electrically connected"
+const CONNECT_EPS = 10;  // px distance considered "electrically connected"
 
 // ---------------------------------------------------------------------------
 // Union-Find

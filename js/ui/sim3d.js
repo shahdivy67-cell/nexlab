@@ -5,9 +5,9 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { getComponents, getWires, getDCSolution, selectComponent } from './simulator.js?v=5';
+import { getComponents, getWires, getDCSolution, selectComponent } from './simulator.js?v=6';
 import { COMPONENT_DEFS, formatValue } from '../engine/components.js';
-import { getLeads } from '../engine/circuit.js?v=4';
+import { getLeads } from '../engine/circuit.js?v=5';
 
 // 2D canvas coords (x right, y down, px) -> 3D (x right, z towards viewer)
 export function w2v(x, y, h = 0) {

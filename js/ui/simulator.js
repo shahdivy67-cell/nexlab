@@ -1,6 +1,6 @@
 // NexLab — Circuit simulator: canvas editor, simulation controls, instruments
 
-import { buildNetlist, getLeads, serializeCircuit, deserializeCircuit } from '../engine/circuit.js?v=4';
+import { buildNetlist, getLeads, serializeCircuit, deserializeCircuit } from '../engine/circuit.js?v=5';
 import { solveDC, solveTransient, equivalentResistance } from '../engine/solver.js';
 import { COMPONENT_DEFS, parseValue, formatValue } from '../engine/components.js';
 import { getState, saveState, updateState, addDiscovery } from '../state.js';
@@ -65,18 +65,36 @@ export function initSimulator() {
     categories[def.category].push({ type, name: def.name });
   }
 
+  const svgOpen = '<svg width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">';
+  const ICONS = {
+    select: `${svgOpen}<path d="M6 1 L15 8 L10.5 8.6 L12.5 14 L10.5 14.6 L8.5 9.2 L5.5 11 Z" fill="currentColor" stroke="none"/></svg>`,
+    wire: `${svgOpen}<path d="M4 13 L12 3"/><circle cx="4" cy="13" r="2.2" fill="currentColor" stroke="none"/><circle cx="12" cy="3" r="2.2" fill="currentColor" stroke="none"/></svg>`,
+    delete: `${svgOpen}<path d="M5 3 L17 13 M17 3 L5 13"/></svg>`,
+    probe: `${svgOpen}<circle cx="11" cy="5.5" r="3" fill="currentColor" stroke="none"/><path d="M11 8.5 V15 M7 15 H15"/></svg>`,
+    destroy: `${svgOpen}<path d="M4 4.5 H18 M8.5 4.5 V2.5 H13.5 V4.5 M6.5 4.5 L7.5 14 H14.5 L15.5 4.5 M10 7 V11.5 M12.5 7 V11.5"/></svg>`,
+    dc_source: `${svgOpen}<rect x="3" y="4" width="12" height="8" rx="1.5"/><path d="M15 6.5 H18.5 V9.5 H15 M5.5 6.3 V9.7 M4 8 H7"/></svg>`,
+    resistor: `${svgOpen}<path d="M1.5 8 H4.5 L6.5 3.5 L9.5 12.5 L12 3.5 L14.5 12.5 L16.5 8 H20.5"/></svg>`,
+    capacitor: `${svgOpen}<path d="M8.5 2.5 V13.5 M13.5 2.5 V13.5 M2 8 H8.5 M13.5 8 H20"/></svg>`,
+    led: `${svgOpen}<path d="M2.5 11.5 L9.5 5 L9.5 12.5 L2.5 11.5 Z"/><path d="M9.5 5 V12.5 M12.5 3.5 L16 1.5 M14.5 6.5 L18 4.5"/></svg>`,
+    diode: `${svgOpen}<path d="M2.5 11.5 L10.5 4 L10.5 13 L2.5 11.5 Z" fill="currentColor" stroke="none"/><path d="M10.5 4 V13 M12.5 8 H19.5"/></svg>`,
+    switch: `${svgOpen}<path d="M1.5 11.5 H7 M15 11.5 H20.5"/><circle cx="7" cy="11.5" r="1.6" fill="currentColor" stroke="none"/><circle cx="15" cy="11.5" r="1.6" fill="currentColor" stroke="none"/><path d="M7 11.5 L13 5.5"/></svg>`,
+    ground: `${svgOpen}<path d="M11 1 V5.5 M5 5.5 H17 M7.5 8.5 H14.5 M9.5 11.5 H12.5 M10.8 14 H11.2"/></svg>`,
+    wirecomp: `${svgOpen}<path d="M1.5 8 H20.5"/><circle cx="11" cy="8" r="2.4"/></svg>`,
+  };
+  const pic = key => `<span class="palette-icon">${ICONS[key] || ICONS.wirecomp}</span>`;
+
   container.innerHTML = `
     <div class="sim-layout">
       <div class="sim-palette">
         <div class="palette-category">Tools</div>
-        <div class="palette-item" onclick="window.nexlabSetTool('select')"><span class="palette-icon">↖</span>Select</div>
-        <div class="palette-item" onclick="window.nexlabSetTool('wire')"><span class="palette-icon">╱</span>Wire</div>
-        <div class="palette-item" onclick="window.nexlabSetTool('delete')"><span class="palette-icon">✕</span>Delete</div>
-        <div class="palette-item" onclick="window.nexlabSetTool('probe')"><span class="palette-icon">●</span>Probe</div>
-        <div class="palette-item" onclick="window.nexlabDestroy()"><span class="palette-icon">🗑</span>Destroy</div>
+        <div class="palette-item" onclick="window.nexlabSetTool('select')">${ICONS.select}Select</div>
+        <div class="palette-item" onclick="window.nexlabSetTool('wire')">${ICONS.wire}Wire</div>
+        <div class="palette-item" onclick="window.nexlabSetTool('delete')">${ICONS.delete}Delete</div>
+        <div class="palette-item" onclick="window.nexlabSetTool('probe')">${ICONS.probe}Probe</div>
+        <div class="palette-item" onclick="window.nexlabDestroy()">${ICONS.destroy}Destroy</div>
         ${Object.entries(categories).map(([cat, items]) => `
           <div class="palette-category">${cat}</div>
-          ${items.map(i => `<div class="palette-item" onclick="window.nexlabAddComponent('${i.type}')"><span class="palette-icon">◈</span>${i.name}</div>`).join('')}
+          ${items.map(i => `<div class="palette-item" onclick="window.nexlabAddComponent('${i.type}')">${pic(i.type === 'wire' ? 'wirecomp' : i.type)}${i.name}</div>`).join('')}
         `).join('')}
       </div>
       <div class="sim-canvas-wrap">
@@ -107,6 +125,7 @@ function resizeCanvas() {
 }
 
 let dragComp = null;
+let dragWire = null;
 let dragOffset = { x: 0, y: 0 };
 let selectedWire = null;
 
@@ -162,7 +181,7 @@ function moveSelectedComp(key) {
   selectedComp.x = snapToGrid(selectedComp.x);
   selectedComp.y = snapToGrid(selectedComp.y);
   saveSimState();
-  render();
+  runSimulation();
 }
 
 function loadSimState() {
@@ -201,10 +220,14 @@ function onMouseDown(e) {
   const w = screenToWorld(sx, sy);
 
   if (selectedTool === 'wire') {
+    const snap = findSnapPoint(w.x, w.y);
+    const pt = snap ? { x: snap.x, y: snap.y } : { x: snapToGrid(w.x), y: snapToGrid(w.y) };
     if (!wireStart) {
-      wireStart = { x: snapToGrid(w.x), y: snapToGrid(w.y) };
+      wireStart = pt;
+    } else if (Math.hypot(pt.x - wireStart.x, pt.y - wireStart.y) > 4) {
+      addWire([{ x: wireStart.x, y: wireStart.y }, { x: pt.x, y: pt.y }]);
+      wireStart = null;
     } else {
-      addWire([{ x: wireStart.x, y: wireStart.y }, { x: snapToGrid(w.x), y: snapToGrid(w.y) }]);
       wireStart = null;
     }
   } else if (selectedTool === 'delete') {
@@ -231,6 +254,7 @@ function onMouseDown(e) {
       const wire = findWireAt(w.x, w.y);
       if (wire) {
         selectedWire = wire;
+        dragWire = wire;
         dragOffset = { x: w.x, y: w.y };
       } else {
         selectedComp = null;
@@ -241,6 +265,28 @@ function onMouseDown(e) {
   render();
 }
 
+// Snap a point to the nearest component lead (preferred) or wire joint,
+// so wires reliably connect instead of landing a few px off.
+function findSnapPoint(x, y) {
+  let best = null, bestD = 18;
+  for (const comp of components) {
+    if (comp.type === 'wire') continue;
+    for (const lead of getLeads(comp)) {
+      const d = Math.hypot(lead.x - x, lead.y - y);
+      if (d < bestD) { bestD = d; best = { x: lead.x, y: lead.y, kind: 'lead' }; }
+    }
+  }
+  if (best) return best;
+  bestD = 12;
+  for (const wire of wires) {
+    for (const p of wire.points) {
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < bestD) { bestD = d; best = { x: p.x, y: p.y, kind: 'joint' }; }
+    }
+  }
+  return best;
+}
+
 function onMouseMove(e) {
   const rect = canvas.getBoundingClientRect();
   mousePos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -248,11 +294,11 @@ function onMouseMove(e) {
     const w = screenToWorld(mousePos.x, mousePos.y);
     dragComp.x = snapToGrid(w.x - dragOffset.x);
     dragComp.y = snapToGrid(w.y - dragOffset.y);
-  } else if (selectedWire) {
+  } else if (dragWire) {
     const w = screenToWorld(mousePos.x, mousePos.y);
     const dx = snapToGrid(w.x - dragOffset.x);
     const dy = snapToGrid(w.y - dragOffset.y);
-    selectedWire.points = selectedWire.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+    dragWire.points = dragWire.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
     dragOffset = { x: w.x, y: w.y };
   }
   render();
@@ -262,6 +308,11 @@ function onMouseUp() {
   if (dragComp) {
     dragComp = null;
     saveSimState();
+    runSimulation();
+  } else if (dragWire) {
+    dragWire = null;
+    saveSimState();
+    runSimulation();
   }
 }
 
@@ -316,7 +367,7 @@ function distToSegment(px, py, x1, y1, x2, y2) {
 function removeWire(id) {
   wires = wires.filter(w => w.id !== id);
   saveSimState();
-  render();
+  runSimulation();
 }
 
 export function addComponent(type, x, y) {
@@ -341,14 +392,14 @@ export function addComponent(type, x, y) {
   components.push(comp);
   selectedComp = comp;
   saveSimState();
-  render();
+  runSimulation();
 }
 
 function removeComponent(id) {
   components = components.filter(c => c.id !== id);
   if (selectedComp?.id === id) selectedComp = null;
   saveSimState();
-  render();
+  runSimulation();
 }
 
 function addWire(points) {
@@ -356,7 +407,7 @@ function addWire(points) {
   wires.push({ id: `w_${Date.now()}`, points });
   autoConnectComponents();
   saveSimState();
-  render();
+  runSimulation();
 }
 
 function autoConnectComponents() {
@@ -466,6 +517,7 @@ export function runSimulation() {
 }
 
 export function toggleSimulation() {
+  if (!simRunning) runSimulation();
   simRunning = !simRunning;
   if (simRunning) simLoop();
   else cancelAnimationFrame(animFrame);
@@ -525,6 +577,7 @@ function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawGrid(); drawWires(); drawComponents(); drawProbes(); drawWirePreview();
   updateInspector(); updateToolbar();
+  ensureLedAnim();
   if (viewMode === '3d' && sim3dMod) sim3dMod.refresh3D();
 }
 
@@ -536,10 +589,68 @@ function drawGrid() {
   for (let y = oy; y < canvas.height; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
 }
 
+function compCurrent(comp) {
+  if (!dcSolution || !dcSolution.ok) return 0;
+  return dcSolution.branchCurrents.get(comp.id) ?? 0;
+}
+
+let ledRafId = 0;
+function ensureLedAnim() {
+  if (ledRafId) return;
+  if (!dcSolution || !dcSolution.ok) return;
+  const on = components.some(c => c.type === 'led' && Math.abs(compCurrent(c)) > 0.002);
+  if (!on) return;
+  ledRafId = requestAnimationFrame(() => {
+    ledRafId = 0;
+    setTimeout(() => { if (viewMode === '2d') render(); }, 90);
+  });
+}
+
+function wireVoltage(wire, netlist) {
+  if (!dcSolution || !dcSolution.ok || !netlist || wire.points.length === 0) return null;
+  const p = wire.points[0];
+  let bestNet = null, bestD = 14;
+  for (const comp of components) {
+    if (comp.type === 'wire' || comp.type === 'ground') continue;
+    const leads = getLeads(comp);
+    for (let ti = 0; ti < leads.length; ti++) {
+      const d = Math.hypot(leads[ti].x - p.x, leads[ti].y - p.y);
+      if (d < bestD) {
+        bestD = d;
+        for (const [netId, terms] of netlist.nets) {
+          if (terms.some(t => t.compId === comp.id && t.termIdx === ti)) bestNet = netId;
+        }
+      }
+    }
+  }
+  if (bestNet === null) return null;
+  return dcSolution.nodeVoltages.get(bestNet) ?? null;
+}
+
+function voltageColor(v, vmax) {
+  if (v === null || !(vmax > 0)) return '#4a5568';
+  const t = Math.max(-1, Math.min(1, v / vmax));
+  if (Math.abs(t) < 0.04) return '#4a5568';
+  // positive: amber glow, negative: blue glow, intensity scales with |V|
+  const warmth = Math.round(158 - 60 * Math.abs(t));
+  return t > 0 ? `rgb(245,${warmth},11)` : `rgb(59,130,246)`;
+}
+
 function drawWires() {
-  ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  ctx.lineCap = 'round';
+  let vmax = 0;
+  let netlist = null;
+  if (dcSolution && dcSolution.ok) {
+    netlist = buildNetlist(components, wires);
+    for (const v of dcSolution.nodeVoltages.values()) vmax = Math.max(vmax, Math.abs(v));
+  }
   for (const wire of wires) {
     if (wire.points.length < 2) continue;
+    const col = (dcSolution && dcSolution.ok && netlist) ? voltageColor(wireVoltage(wire, netlist), vmax) : '#4a5568';
+    ctx.strokeStyle = col;
+    ctx.lineWidth = col === '#4a5568' ? 2 : 2.5;
+    ctx.shadowColor = col === '#4a5568' ? 'transparent' : col;
+    ctx.shadowBlur = col === '#4a5568' ? 0 : 6;
     ctx.beginPath();
     const p0 = worldToScreen(wire.points[0].x, wire.points[0].y);
     ctx.moveTo(p0.x, p0.y);
@@ -548,6 +659,7 @@ function drawWires() {
       ctx.lineTo(p.x, p.y);
     }
     ctx.stroke();
+    ctx.shadowBlur = 0;
   }
 }
 
@@ -589,9 +701,15 @@ function drawComponentBody(comp) {
 }
 
 function drawDCSource() {
+  const grad = ctx.createLinearGradient(0, -18, 0, 18);
+  grad.addColorStop(0, '#0e7490');
+  grad.addColorStop(1, '#083344');
+  ctx.fillStyle = grad;
   ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = '#00d4ff'; ctx.font = 'bold 14px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#00d4ff'; ctx.shadowBlur = 8;
+  ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#e0faff'; ctx.font = 'bold 14px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('+', 0, -6); ctx.fillText('−', 0, 8);
   ctx.strokeStyle = '#4a5568'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-18, 0); ctx.stroke();
@@ -599,71 +717,126 @@ function drawDCSource() {
 }
 
 function drawResistor() {
-  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-20, 0); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(40, 0); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-20, 0);
-  for (let i = 0; i < 6; i++) { ctx.lineTo(-20 + (i + 0.5) * (40 / 6), i % 2 === 0 ? -8 : 8); }
-  ctx.lineTo(20, 0); ctx.stroke();
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-22, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(40, 0); ctx.stroke();
+  // premium body: metallic gradient capsule with color bands
+  const grad = ctx.createLinearGradient(0, -9, 0, 9);
+  grad.addColorStop(0, '#e8c15a');
+  grad.addColorStop(0.5, '#b8862f');
+  grad.addColorStop(1, '#7c5a1c');
+  ctx.fillStyle = grad;
+  ctx.strokeStyle = '#f3d27a'; ctx.lineWidth = 1.5;
+  ctx.shadowColor = 'rgba(232,193,90,0.5)'; ctx.shadowBlur = 6;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(-22, -9, 44, 18, 8); else ctx.rect(-22, -9, 44, 18);
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  const bands = ['#1e293b', '#b91c1c', '#1d4ed8', '#d4a017'];
+  bands.forEach((b, i) => {
+    ctx.fillStyle = b;
+    ctx.fillRect(-14 + i * 9, -9, 4, 18);
+  });
 }
 
 function drawCapacitor() {
-  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-5, 0); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(5, 0); ctx.lineTo(40, 0); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-5, -12); ctx.lineTo(-5, 12); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(5, -12); ctx.lineTo(5, 12); ctx.stroke();
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-6, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(40, 0); ctx.stroke();
+  const grad = ctx.createLinearGradient(-6, 0, 6, 0);
+  grad.addColorStop(0, '#3b82f6');
+  grad.addColorStop(1, '#93c5fd');
+  ctx.fillStyle = grad;
+  ctx.shadowColor = 'rgba(59,130,246,0.6)'; ctx.shadowBlur = 6;
+  ctx.fillRect(-6, -13, 4, 26);
+  ctx.fillRect(2, -13, 4, 26);
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#dbeafe'; ctx.lineWidth = 1;
+  ctx.strokeRect(-6, -13, 4, 26);
+  ctx.strokeRect(2, -13, 4, 26);
 }
 
 function drawLED(comp) {
-  // LED: diode symbol with light emission arrows
-  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-15, 0); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(40, 0); ctx.stroke();
-  // Diode triangle
-  ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(-15, 10); ctx.lineTo(15, 0); ctx.closePath(); ctx.stroke();
-  // Diode bar
-  ctx.beginPath(); ctx.moveTo(15, -10); ctx.lineTo(15, 10); ctx.stroke();
-  // Light emission arrows (LED-specific)
-  const I = dcSolution?.branchCurrents.get(comp.id) ?? 0;
-  if (I > 0.001) {
-    ctx.strokeStyle = '#ff6b6b'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(-5, -15); ctx.lineTo(5, -22); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(5, -15); ctx.lineTo(15, -22); ctx.stroke();
-    // Glow
-    ctx.shadowColor = '#ff6b6b'; ctx.shadowBlur = 8;
-    ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.stroke();
-    ctx.shadowBlur = 0;
-  }
+  // LED: lens circle + hollow triangle + emission rays (always visible, dim when off).
+  const I = Math.abs(compCurrent(comp));
+  const on = I > 0.002;
+  const pulse = on ? 0.65 + 0.35 * Math.sin(performance.now() / 140) : 0;
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-16, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(40, 0); ctx.stroke();
+  // lens
+  const lensGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, 18);
+  if (on) { lensGrad.addColorStop(0, '#fecaca'); lensGrad.addColorStop(1, 'rgba(239,68,68,0.15)'); }
+  else { lensGrad.addColorStop(0, '#1f2937'); lensGrad.addColorStop(1, 'rgba(31,41,55,0.1)'); }
+  ctx.fillStyle = lensGrad;
+  ctx.strokeStyle = on ? '#ef4444' : '#64748b'; ctx.lineWidth = 2;
+  ctx.shadowColor = on ? '#ef4444' : 'transparent';
+  ctx.shadowBlur = on ? 10 + 8 * pulse : 0;
+  ctx.beginPath(); ctx.arc(0, 0, 17, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  // hollow triangle + bar
+  ctx.beginPath(); ctx.moveTo(-13, -9); ctx.lineTo(-13, 9); ctx.lineTo(13, 0); ctx.closePath(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(13, -9); ctx.lineTo(13, 9); ctx.stroke();
+  // emission rays
+  ctx.strokeStyle = on ? '#fca5a5' : '#475569';
+  ctx.globalAlpha = on ? 0.5 + 0.5 * pulse : 0.35;
+  ctx.lineWidth = on ? 2 : 1.5;
+  ctx.shadowColor = on ? '#ef4444' : 'transparent';
+  ctx.shadowBlur = on ? 6 + 6 * pulse : 0;
+  ctx.beginPath(); ctx.moveTo(-2, -19); ctx.lineTo(8, -27); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(8, -19); ctx.lineTo(18, -27); ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
 }
 
 function drawDiode(comp) {
-  // Standard diode: triangle + bar, no light arrows
-  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-15, 0); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(40, 0); ctx.stroke();
-  // Diode triangle
-  ctx.beginPath(); ctx.moveTo(-15, -10); ctx.lineTo(-15, 10); ctx.lineTo(15, 0); ctx.closePath(); ctx.stroke();
-  // Diode bar
-  ctx.beginPath(); ctx.moveTo(15, -10); ctx.lineTo(15, 10); ctx.stroke();
+  // Standard diode: SOLID amber triangle + bar — clearly different from the LED lens.
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-14, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(40, 0); ctx.stroke();
+  const I = Math.abs(compCurrent(comp));
+  const grad = ctx.createLinearGradient(0, -10, 0, 10);
+  grad.addColorStop(0, '#fcd34d');
+  grad.addColorStop(1, '#b45309');
+  ctx.fillStyle = grad;
+  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
+  ctx.shadowColor = I > 0.002 ? '#f59e0b' : 'transparent';
+  ctx.shadowBlur = I > 0.002 ? 8 : 0;
+  ctx.beginPath(); ctx.moveTo(-14, -10); ctx.lineTo(-14, 10); ctx.lineTo(14, 0); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#fde68a'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(14, -11); ctx.lineTo(14, 11); ctx.stroke();
 }
 
 function drawSwitch(comp) {
   const closed = comp.state?.closed ?? false;
-  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-15, 0); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(40, 0); ctx.stroke();
-  ctx.beginPath(); ctx.arc(-15, 0, 3, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.arc(15, 0, 3, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-15, 0); ctx.lineTo(closed ? 15 : 12, closed ? 0 : -12); ctx.stroke();
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, 0); ctx.lineTo(-16, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(40, 0); ctx.stroke();
+  // premium contact pads
+  ctx.fillStyle = closed ? '#22c55e' : '#64748b';
+  ctx.shadowColor = closed ? '#22c55e' : 'transparent';
+  ctx.shadowBlur = closed ? 6 : 0;
+  for (const s of [-16, 16]) { ctx.beginPath(); ctx.arc(s, 0, 4, 0, Math.PI * 2); ctx.fill(); }
+  ctx.shadowBlur = 0;
+  const grad = ctx.createLinearGradient(0, -3, 0, 3);
+  grad.addColorStop(0, '#e2e8f0');
+  grad.addColorStop(1, '#64748b');
+  ctx.strokeStyle = grad; ctx.lineWidth = 3.5;
+  ctx.beginPath(); ctx.moveTo(-16, 0); ctx.lineTo(closed ? 16 : 12, closed ? 0 : -13); ctx.stroke();
 }
 
 function drawGround() {
-  ctx.strokeStyle = '#8892a8'; ctx.lineWidth = 2;
+  const grad = ctx.createLinearGradient(0, -20, 0, 12);
+  grad.addColorStop(0, '#94a3b8');
+  grad.addColorStop(1, '#475569');
+  ctx.strokeStyle = grad; ctx.lineWidth = 2.5;
   ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(0, 0); ctx.stroke();
+  ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(-15, 0); ctx.lineTo(15, 0); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-10, 5); ctx.lineTo(10, 5); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-5, 10); ctx.lineTo(5, 10); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-10, 5.5); ctx.lineTo(10, 5.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-5, 11); ctx.lineTo(5, 11); ctx.stroke();
 }
 
 function drawProbes() {
@@ -685,10 +858,22 @@ function drawProbes() {
 
 function drawWirePreview() {
   if (selectedTool === 'wire' && wireStart) {
+    const w = screenToWorld(mousePos.x, mousePos.y);
+    const snap = findSnapPoint(w.x, w.y);
+    const end = snap ? worldToScreen(snap.x, snap.y) : mousePos;
     const start = worldToScreen(wireStart.x, wireStart.y);
-    ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
-    ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(mousePos.x, mousePos.y); ctx.stroke();
+    ctx.strokeStyle = snap ? '#22c55e' : '#00d4ff';
+    ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(end.x, end.y); ctx.stroke();
     ctx.setLineDash([]);
+    if (snap) {
+      // magnetic snap ring: green = lead, cyan = wire joint
+      ctx.strokeStyle = snap.kind === 'lead' ? '#22c55e' : '#00d4ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(end.x, end.y, 8, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = snap.kind === 'lead' ? '#22c55e' : '#00d4ff';
+      ctx.beginPath(); ctx.arc(end.x, end.y, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
   }
 }
 
@@ -752,6 +937,8 @@ export function destroyCircuit() {
   selectedComp = null;
   selectedWire = null;
   dragComp = null;
+  dragWire = null;
+  wireStart = null;
   dcSolution = null;
   transientData = null;
   simErrors = [];

@@ -3,7 +3,7 @@
 import { getState, saveState, updateState, resetState, addNotebookEntry, addDiscovery } from './state.js';
 import { renderDashboard } from './ui/dashboard.js';
 import { renderLearn, renderConceptDetail } from './ui/learn.js';
-import { initSimulator, runSimulation, toggleSimulation, resetSimulation, stepSimulation, setSimSpeed, setSimMode, setTool, setPlacingType, setViewMode, addComponent, clearCircuit, destroyCircuit, loadExperimentSetup, injectFault, clearFault, setComponentValue, clearProbes, exportCircuit, importCircuit, startScopeRecording, stopScopeRecording, resetScope, setScopeVdiv, setScopeTdiv, setScopeChannel, setScopeEnabled, getComponents, getWires, getDCSolution, getProbes, getSimErrors, getFaultState, getScopeData, getScopeChannels, getScopeEnabled, getScopeColors, getScopeVdiv, getScopeTdiv, getScopeTimePoints, getScopeNodeHistory, getSimTime, getSimRunning, getSimMode, getSimSpeed, getSimTmax, getSimDt, getScopeTime, getScopeMaxTime, getScopeDt, getScopeRecording } from './ui/simulator.js?v=5';
+import { initSimulator, runSimulation, toggleSimulation, resetSimulation, stepSimulation, setSimSpeed, setSimMode, setTool, setPlacingType, setViewMode, addComponent, clearCircuit, destroyCircuit, loadExperimentSetup, injectFault, clearFault, setComponentValue, clearProbes, exportCircuit, importCircuit, startScopeRecording, stopScopeRecording, resetScope, setScopeVdiv, setScopeTdiv, setScopeChannel, setScopeEnabled, getComponents, getWires, getDCSolution, getProbes, getSimErrors, getFaultState, getScopeData, getScopeChannels, getScopeEnabled, getScopeColors, getScopeVdiv, getScopeTdiv, getScopeTimePoints, getScopeNodeHistory, getSimTime, getSimRunning, getSimMode, getSimSpeed, getSimTmax, getSimDt, getScopeTime, getScopeMaxTime, getScopeDt, getScopeRecording } from './ui/simulator.js?v=6';
 import { initInstruments, setMultimeterMode, updateMultimeter, drawScope, toggleScope, resetScope as resetScopeUI, getScopeStats } from './ui/instruments.js';
 import { initMentor, renderMentor, askMentor, getMentorMessages } from './ui/mentor.js';
 import { renderNotebook, createNotebookEntry, exportNotebook } from './ui/notebook.js';
@@ -12,7 +12,7 @@ import { renderSkills } from './ui/skills.js';
 import { EXPERIMENTS } from './data/experiments.js';
 import { MISSIONS } from './data/missions.js';
 import { COMPONENT_DEFS, parseValue, formatValue } from './engine/components.js';
-import { buildNetlist, getLeads, serializeCircuit, deserializeCircuit } from './engine/circuit.js?v=4';
+import { buildNetlist, getLeads, serializeCircuit, deserializeCircuit } from './engine/circuit.js?v=5';
 import { solveDC, solveTransient, equivalentResistance } from './engine/solver.js';
 
 // ── Router ──
