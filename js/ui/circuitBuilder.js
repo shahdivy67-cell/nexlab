@@ -93,6 +93,7 @@ export function seriesLoop(items, opts = {}) {
     y,
     rotation: 0,
     params: it.params || {},
+    ...(it.state ? { state: it.state } : {}),
   }));
   const wires = [];
   const L = i => ({ x: components[i].x - 40, y });
@@ -150,9 +151,10 @@ export function buildCircuitFromText(rawText) {
   const specs = parseSpecs(t);
   const Vs = specs.volts ?? 9;
 
-  // 1. LED glow (also covers "diode", "blink", "light up")
-  if (/l[eë]d|diode|glow|light\s*(it|up|the)|blink|flash|bright/.test(t)) {
+  // 1. LED glow (also covers "diode", "blink", "light up", "switch")
+  if (/l[eë]d|diode|glow|light\s*(it|up|the)|blink|flash|bright|switch|on\/off|toggle/.test(t)) {
     const isDiodeWord = /diode/.test(t) && !/l[eë]d/.test(t);
+    const wantSwitch = /switch|on\/off|toggle/.test(t);
     let R, note;
     if (specs.resistances.length > 0) {
       R = specs.resistances[0];
@@ -164,17 +166,20 @@ export function buildCircuitFromText(rawText) {
       note = `For ~${trimNum(Itarget * 1000)} mA from ${Vs} V (LED drops ~${VF_LED} V), R = (${Vs} − ${VF_LED}) / ${trimNum(Itarget * 1000)} mA ≈ ${fmtR(R)} (nearest standard value).`;
     }
     const userR = specs.resistances.length > 0;
-    const setup = seriesLoop([
+    const items = [
       { type: 'dc_source', params: { voltage: String(Vs) } },
       { type: 'resistor', params: { resistance: userR ? fmtExact(R) : fmtR(R) } },
-      { type: 'led', params: isDiodeWord ? { vf: '0.7' } : { vf: '2' } },
-    ]);
+    ];
+    if (wantSwitch) items.push({ type: 'switch', params: {}, state: { closed: true } });
+    items.push({ type: 'led', params: isDiodeWord ? { vf: '0.7' } : { vf: '2' } });
+    const setup = seriesLoop(items);
+    const switchNote = wantSwitch ? ' It starts ON — click the switch body to turn it OFF and watch the current die.' : '';
     return {
       ok: true,
       kind: 'led',
-      title: isDiodeWord ? 'Diode circuit' : 'Glowing LED circuit',
+      title: (isDiodeWord ? 'Diode circuit' : 'Glowing LED circuit') + (wantSwitch ? ' with switch' : ''),
       setup,
-      explanation: `${note} Press Run — the LED lens pulses red and the inspector shows live current. Double-click the resistor to try other values and watch the brightness follow.`,
+      explanation: `${note}${switchNote} Press Run — the LED lens pulses red and the inspector shows live current. Double-click the resistor to try other values and watch the brightness follow.`,
     };
   }
 

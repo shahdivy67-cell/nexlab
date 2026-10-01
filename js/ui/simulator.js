@@ -1,9 +1,9 @@
 // NexLab — Circuit simulator: canvas editor, simulation controls, instruments
 
 import { buildNetlist, getLeads, serializeCircuit, deserializeCircuit } from '../engine/circuit.js?v=5';
-import { solveDC, solveTransient, equivalentResistance } from '../engine/solver.js';
+import { solveDC, solveTransient, equivalentResistance } from '../engine/solver.js?v=2';
 import { COMPONENT_DEFS, parseValue, formatValue } from '../engine/components.js';
-import { buildCircuitFromText } from './circuitBuilder.js';
+import { buildCircuitFromText } from './circuitBuilder.js?v=2';
 import { getState, saveState, updateState, addDiscovery } from '../state.js';
 
 let canvas, ctx;

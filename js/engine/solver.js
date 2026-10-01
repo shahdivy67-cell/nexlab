@@ -69,6 +69,9 @@ function stampCircuit(components, idxMaps, A, z, sourceAuxIdx, diodeState, capPr
       const model = ledModel(parseValue(params.vf ?? (type === 'diode' ? '0.7' : '2')));
       const Vd0 = diodeState.get(comp.id) ?? 0.7;
       stampDiode(A, z, { a: getIdx(getNet(comp.id, 0)), b: getIdx(getNet(comp.id, 1)) }, Vd0, model.Is, model.n);
+    } else if (type === 'switch' && comp.state?.closed) {
+      // Closed switch = near-ideal conductor; open switch stamps nothing (open branch).
+      stampResistor(A, z, { a: getIdx(getNet(comp.id, 0)), b: getIdx(getNet(comp.id, 1)) }, 1e-3);
     } else if (type === 'capacitor' && dt != null) {
       const C = parseValue(params.capacitance ?? '100u');
       const prev = capPrevV.get(comp.id) || { Va: 0, Vb: 0 };
@@ -111,6 +114,10 @@ function extractResults(components, idxMaps, x, sourceAuxIdx) {
       const I = diodeCurrent(Vd, model.Is, model.n);
       branchCurrents.set(comp.id, I);
       powers.set(comp.id, Vd * I);
+    } else if (type === 'switch') {
+      const I = comp.state?.closed ? (Va - Vb) / 1e-3 : 0;
+      branchCurrents.set(comp.id, I);
+      powers.set(comp.id, (Va - Vb) * I);
     } else if (type === 'capacitor') {
       branchCurrents.set(comp.id, 0);
       powers.set(comp.id, 0);
