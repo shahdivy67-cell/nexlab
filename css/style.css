@@ -832,6 +832,57 @@ input.mono, .mono-input {
   color: var(--text-muted);
 }
 
+/* ── Text-to-circuit build bar ── */
+.sim-buildbar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px 6px 12px;
+  z-index: 10;
+  width: min(560px, calc(100% - 220px));
+}
+
+.sim-buildbar input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  min-width: 0;
+}
+
+.sim-buildbar input:focus {
+  border: none;
+}
+
+.build-spark {
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.sim-buildmsg {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  width: min(560px, calc(100% - 220px));
+}
+
+.sim-buildmsg:empty {
+  display: none;
+}
+
 /* ── Responsive ── */
 @media (max-width: 1200px) {
   .sim-layout { grid-template-columns: 180px 1fr 220px; }

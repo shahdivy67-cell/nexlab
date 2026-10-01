@@ -2,9 +2,10 @@
 // Reads simulation state, experiment progress, and skill graph to guide students.
 
 import { getState, getSkillLevel, getIntuitionAccuracy, recordPrediction, addDiscovery } from '../state.js';
-import { getDCSolution, getComponents, getWires, getProbes, getSimErrors, getFaultState, getCurrentExperiment, getHintLevel, setHintLevel } from './simulator.js?v=6';
+import { getDCSolution, getComponents, getWires, getProbes, getSimErrors, getFaultState, getCurrentExperiment, getHintLevel, setHintLevel, loadExperimentSetup } from './simulator.js?v=7';
 import { buildNetlist } from '../engine/circuit.js?v=5';
 import { formatValue } from '../engine/components.js';
+import { buildCircuitFromText } from './circuitBuilder.js';
 
 let messages = [];
 
@@ -103,6 +104,11 @@ function generateResponse(query) {
   const exp = getCurrentExperiment();
   const hintLevel = getHintLevel();
 
+  // Build request ("build an LED circuit...") — actually constructs it
+  if (/\b(build|make|create|design|wire|assemble|put together)\b/.test(q) && /circuit|led|diode|divider|resistor|rc\b|capacitor|parallel|series|blink|glow|limit/.test(q)) {
+    return handleBuildRequest(query);
+  }
+
   // Hint request
   if (q === 'hint' || q.includes('hint') || q.includes('help')) {
     return getProgressiveHint(exp, hintLevel);
@@ -140,6 +146,14 @@ function generateResponse(query) {
 
   // Default: context-aware response
   return getContextualResponse(q, state, solution, exp);
+}
+
+function handleBuildRequest(query) {
+  const res = buildCircuitFromText(query);
+  if (!res.ok) return res.error + ' ' + res.suggestions;
+  loadExperimentSetup(res.setup);
+  addDiscovery(`Built ${res.title} from description`);
+  return `Done — I built the ${res.title} in your simulator. ${res.explanation} Open the Simulator tab to see it glow.`;
 }
 
 function getProgressiveHint(exp, level) {

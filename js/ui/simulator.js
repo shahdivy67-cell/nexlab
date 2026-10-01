@@ -3,6 +3,7 @@
 import { buildNetlist, getLeads, serializeCircuit, deserializeCircuit } from '../engine/circuit.js?v=5';
 import { solveDC, solveTransient, equivalentResistance } from '../engine/solver.js';
 import { COMPONENT_DEFS, parseValue, formatValue } from '../engine/components.js';
+import { buildCircuitFromText } from './circuitBuilder.js';
 import { getState, saveState, updateState, addDiscovery } from '../state.js';
 
 let canvas, ctx;
@@ -100,6 +101,12 @@ export function initSimulator() {
       <div class="sim-canvas-wrap">
         <canvas id="sim-canvas" class="sim-canvas"></canvas>
         <div id="sim-3d" class="sim-3d" style="display:none"></div>
+        <div class="sim-buildbar">
+          <span class="build-spark">✦</span>
+          <input id="sim-build-input" placeholder='Describe a circuit — e.g. "LED glow with 9V and 15mA"' onkeydown="if(event.key==='Enter')window.nexlabBuildCircuit()">
+          <button class="btn btn-primary btn-sm" onclick="window.nexlabBuildCircuit()">Build</button>
+        </div>
+        <div class="sim-buildmsg" id="sim-buildmsg"></div>
         <div class="sim-toolbar" id="sim-toolbar"></div>
       </div>
       <div class="sim-inspector" id="sim-inspector"></div>
@@ -976,6 +983,21 @@ export function getScopeTimePoints() { return scopeTimePoints; }
 export function setComponentValue(compId, key, value) {
   const comp = components.find(c => c.id === compId);
   if (comp) { comp.params[key] = value; runSimulation(); saveSimState(); }
+}
+
+export function buildFromDescription(text) {
+  const input = document.getElementById('sim-build-input');
+  const msg = document.getElementById('sim-buildmsg');
+  const req = (text ?? input?.value ?? '').trim();
+  if (!req) return { ok: false };
+  const res = buildCircuitFromText(req);
+  if (res.ok) {
+    loadExperimentSetup(res.setup);
+    if (msg) msg.innerHTML = `<span class="text-success">Built ${res.title}.</span> <span class="text-muted">${res.explanation}</span>`;
+  } else {
+    if (msg) msg.innerHTML = `<span class="text-danger">${res.error}</span><br><span class="text-muted">${res.suggestions}</span>`;
+  }
+  return res;
 }
 
 export function clearProbes() { probes = { red: null, black: null }; render(); }

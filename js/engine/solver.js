@@ -6,7 +6,26 @@ import { solveLinearSystem } from './linalg.js';
 import {
   stampResistor, stampVoltageSource, stampDiode,
   stampCapacitorTransient, ledModel, diodeCurrent, parseValue,
+  devPnjlim, diodeCritVoltage,
 } from './components.js';
+
+// A diode-like part (LED or plain diode). Both share the Shockley model;
+// the LED's vf param only affects its displayed rating, the plain diode
+// defaults to a silicon 0.7 V junction.
+function isDiodePart(comp) {
+  return comp.type === 'led' || comp.type === 'diode';
+}
+
+function diodeDefaultVf(comp) {
+  return comp.type === 'diode' ? '0.7' : '2';
+}
+
+// SPICE-limited diode voltage update for Newton iterations.
+function limitDiodeVd(comp, Vd, prev) {
+  const model = ledModel(parseValue(comp.params?.vf ?? diodeDefaultVf(comp)));
+  const vte = model.n * model.Vt;
+  return devPnjlim(Vd, prev, vte, diodeCritVoltage(model.Is, model.n)).v;
+}
 
 // Index maps: matrix indices 0..N-1 = non-ground node voltages,
 // N..N+K-1 = voltage source currents. Ground is not in the matrix.
@@ -46,8 +65,8 @@ function stampCircuit(components, idxMaps, A, z, sourceAuxIdx, diodeState, capPr
       // termIdx 0 = negative terminal, termIdx 1 = positive terminal
       stampVoltageSource(A, z, { a: getIdx(getNet(comp.id, 1)), b: getIdx(getNet(comp.id, 0)) }, V, auxIdx);
       sourceAuxIdx.set(comp.id, auxIdx);
-    } else if (type === 'led') {
-      const model = ledModel(parseValue(params.vf ?? '2'));
+    } else if (type === 'led' || type === 'diode') {
+      const model = ledModel(parseValue(params.vf ?? (type === 'diode' ? '0.7' : '2')));
       const Vd0 = diodeState.get(comp.id) ?? 0.7;
       stampDiode(A, z, { a: getIdx(getNet(comp.id, 0)), b: getIdx(getNet(comp.id, 1)) }, Vd0, model.Is, model.n);
     } else if (type === 'capacitor' && dt != null) {
@@ -86,8 +105,8 @@ function extractResults(components, idxMaps, x, sourceAuxIdx) {
       sourceCurrents.set(comp.id, Iconv);
       branchCurrents.set(comp.id, Iconv);
       powers.set(comp.id, (Va - Vb) * Iconv);
-    } else if (type === 'led') {
-      const model = ledModel(parseValue(params.vf ?? '2'));
+    } else if (type === 'led' || type === 'diode') {
+      const model = ledModel(parseValue(params.vf ?? (type === 'diode' ? '0.7' : '2')));
       const Vd = Va - Vb;
       const I = diodeCurrent(Vd, model.Is, model.n);
       branchCurrents.set(comp.id, I);
@@ -120,7 +139,7 @@ export function solveDC(components, wires, netlist) {
 
   const diodeState = new Map();
   for (const comp of components) {
-    if (comp.type === 'led') diodeState.set(comp.id, 0.7);
+    if (isDiodePart(comp)) diodeState.set(comp.id, 0.7);
   }
 
   let iter = 0;
@@ -128,7 +147,7 @@ export function solveDC(components, wires, netlist) {
   let lastX = null;
   let lastSourceAuxIdx = null;
 
-  while (iter < 60 && !converged) {
+  while (iter < 120 && !converged) {
     iter++;
     const A = Array.from({ length: size }, () => new Array(size).fill(0));
     const z = new Array(size).fill(0);
@@ -144,13 +163,14 @@ export function solveDC(components, wires, netlist) {
 
     let maxDelta = 0;
     for (const comp of components) {
-      if (comp.type !== 'led') continue;
+      if (!isDiodePart(comp)) continue;
       const a = idxMaps.getIdx(idxMaps.getNet(comp.id, 0));
       const b = idxMaps.getIdx(idxMaps.getNet(comp.id, 1));
       const Vd = (a < 0 ? 0 : x[a]) - (b < 0 ? 0 : x[b]);
       const prev = diodeState.get(comp.id) ?? 0.7;
-      maxDelta = Math.max(maxDelta, Math.abs(Vd - prev));
-      diodeState.set(comp.id, Vd);
+      const VdL = limitDiodeVd(comp, Vd, prev);
+      maxDelta = Math.max(maxDelta, Math.abs(VdL - prev));
+      diodeState.set(comp.id, VdL);
     }
 
     lastX = x;
@@ -208,7 +228,7 @@ export function solveTransient(components, wires, netlist, options = {}) {
 
   const diodeState = new Map();
   for (const comp of components) {
-    if (comp.type === 'led') diodeState.set(comp.id, 0.7);
+    if (isDiodePart(comp)) diodeState.set(comp.id, 0.7);
   }
 
   const timePoints = [];
@@ -225,7 +245,7 @@ export function solveTransient(components, wires, netlist, options = {}) {
     let iter = 0;
     let converged = false;
 
-    while (iter < 60 && !converged) {
+    while (iter < 120 && !converged) {
       iter++;
       const A = Array.from({ length: size }, () => new Array(size).fill(0));
       const z = new Array(size).fill(0);
@@ -238,13 +258,14 @@ export function solveTransient(components, wires, netlist, options = {}) {
 
       let maxDelta = 0;
       for (const comp of components) {
-        if (comp.type !== 'led') continue;
+        if (!isDiodePart(comp)) continue;
         const a = idxMaps.getIdx(idxMaps.getNet(comp.id, 0));
         const b = idxMaps.getIdx(idxMaps.getNet(comp.id, 1));
         const Vd = (a < 0 ? 0 : x[a]) - (b < 0 ? 0 : x[b]);
         const prev = diodeState.get(comp.id) ?? 0.7;
-        maxDelta = Math.max(maxDelta, Math.abs(Vd - prev));
-        diodeState.set(comp.id, Vd);
+        const VdL = limitDiodeVd(comp, Vd, prev);
+        maxDelta = Math.max(maxDelta, Math.abs(VdL - prev));
+        diodeState.set(comp.id, VdL);
       }
 
       lastX = x;

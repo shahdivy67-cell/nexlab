@@ -89,6 +89,28 @@ export function ledModel(vf) {
   return { Is, n, Vt: VT };
 }
 
+// SPICE-style PN-junction voltage limiting (DEVpnjlim): keeps Newton updates
+// from overshooting across the exponential diode curve, which otherwise
+// oscillates forever instead of converging.
+export function devPnjlim(vnew, vold, vte, vcrit) {
+  if (vnew > vcrit && Math.abs(vnew - vold) > vte + vte) {
+    let vlim;
+    if (vold > 0) {
+      const arg = 1 + (vnew - vold) / vte;
+      vlim = arg > 0 ? vold + vte * Math.log(arg) : vcrit;
+    } else {
+      vlim = vte * Math.log(Math.max(vnew / vte, 1e-12));
+    }
+    return { v: vlim, limited: true };
+  }
+  return { v: vnew, limited: false };
+}
+
+export function diodeCritVoltage(Is, n) {
+  const vte = n * VT;
+  return vte * Math.log(vte / (Math.SQRT2 * Is));
+}
+
 // Diode current: I = Is * (exp(Vd / (n*Vt)) - 1)
 export function diodeCurrent(Vd, Is, n) {
   const arg = Math.max(-30, Math.min(30, Vd / (n * VT)));

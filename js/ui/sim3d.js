@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { getComponents, getWires, getDCSolution, selectComponent } from './simulator.js?v=6';
+import { getComponents, getWires, getDCSolution, selectComponent } from './simulator.js?v=7';
 import { COMPONENT_DEFS, formatValue } from '../engine/components.js';
 import { getLeads } from '../engine/circuit.js?v=5';
 

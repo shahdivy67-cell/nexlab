@@ -2,7 +2,7 @@
 
 import { getState, updateState, addSkillXP, addDiscovery } from '../state.js';
 import { MISSIONS } from '../data/missions.js';
-import { getDCSolution, getComponents, getWires, loadExperimentSetup, getSimErrors } from './simulator.js?v=6';
+import { getDCSolution, getComponents, getWires, loadExperimentSetup, getSimErrors } from './simulator.js?v=7';
 import { buildNetlist } from '../engine/circuit.js?v=5';
 import { formatValue } from '../engine/components.js';
 
