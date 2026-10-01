@@ -3,7 +3,7 @@
 import { buildNetlist, getLeads, serializeCircuit, deserializeCircuit } from '../engine/circuit.js?v=5';
 import { solveDC, solveTransient, equivalentResistance } from '../engine/solver.js?v=2';
 import { COMPONENT_DEFS, parseValue, formatValue } from '../engine/components.js';
-import { buildCircuitFromText } from './circuitBuilder.js?v=2';
+import { buildCircuitFromText } from './circuitBuilder.js?v=3';
 import { getState, saveState, updateState, addDiscovery } from '../state.js';
 
 let canvas, ctx;

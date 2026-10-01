@@ -132,6 +132,44 @@ export function parallelPair(rA, rB, vs) {
   return { components, wires };
 }
 
+// Multi-part LED string: N LEDs + M resistors in series, values auto-balanced.
+function buildMultiLed(specs, Vs, ledN, resN, wantSwitch, isDiodeWord) {
+  const vfTotal = ledN * VF_LED;
+  if (vfTotal >= Vs) {
+    return {
+      ok: false,
+      error: `${ledN} LEDs in series drop ~${trimNum(vfTotal)} V but your supply is only ${Vs} V — nothing would light.`,
+      suggestions: `Raise the supply (e.g. "with ${Math.ceil(vfTotal + 3)}V") or ask for fewer LEDs.`,
+    };
+  }
+  const Itarget = specs.amps ?? 0.015;
+  const given = specs.resistances.slice(0, resN);
+  const rVals = given.slice();
+  if (rVals.length < resN) {
+    const givenSum = rVals.reduce((s, v) => s + v, 0);
+    const rTotal = (Vs - vfTotal) / Itarget;
+    const each = Math.max(1, (rTotal - givenSum) / (resN - rVals.length));
+    while (rVals.length < resN) rVals.push(each);
+  }
+  const total = rVals.reduce((s, v) => s + v, 0);
+  const I = (Vs - vfTotal) / total;
+  const items = [
+    { type: 'dc_source', params: { voltage: String(Vs) } },
+    ...rVals.map(r => ({ type: 'resistor', params: { resistance: fmtExact(r) } })),
+  ];
+  if (wantSwitch) items.push({ type: 'switch', params: {}, state: { closed: true } });
+  for (let i = 0; i < ledN; i++) {
+    items.push({ type: 'led', params: isDiodeWord ? { vf: '0.7' } : { vf: '2' } });
+  }
+  return {
+    ok: true,
+    kind: 'led',
+    title: `${ledN} LEDs + ${resN} resistor${resN > 1 ? 's' : ''}${wantSwitch ? ' with switch' : ''}`,
+    setup: seriesLoop(items),
+    explanation: `${ledN} LEDs in series drop ~${trimNum(vfTotal)} V, leaving ${trimNum(Vs - vfTotal)} V across ${fmtExact(total)} total resistance → ~${trimNum(I * 1000)} mA through everything, so all LEDs glow equally.${wantSwitch ? ' Click the switch to turn the string off.' : ''}`,
+  };
+}
+
 // ---- main entry ----
 const EXAMPLES = [
   '"LED glow with 9V and 15mA"',
@@ -155,6 +193,10 @@ export function buildCircuitFromText(rawText) {
   if (/l[eë]d|diode|glow|light\s*(it|up|the)|blink|flash|bright|switch|on\/off|toggle/.test(t)) {
     const isDiodeWord = /diode/.test(t) && !/l[eë]d/.test(t);
     const wantSwitch = /switch|on\/off|toggle/.test(t);
+    const ledMatch = t.match(/(\d+)\s*(?:working\s+)?l[eë]ds?\b/);
+    const ledN = Math.min(ledMatch ? parseInt(ledMatch[1], 10) : 1, 6);
+    const resN = Math.min(specs.count ?? (specs.resistances.length || 1), 5);
+    if (ledN > 1 || resN > 1) return buildMultiLed(specs, Vs, ledN, resN, wantSwitch, isDiodeWord);
     let R, note;
     if (specs.resistances.length > 0) {
       R = specs.resistances[0];

@@ -5,7 +5,7 @@ import { getState, getSkillLevel, getIntuitionAccuracy, recordPrediction, addDis
 import { getDCSolution, getComponents, getWires, getProbes, getSimErrors, getFaultState, getCurrentExperiment, getHintLevel, setHintLevel, appendExperimentSetup } from './simulator.js?v=10';
 import { buildNetlist } from '../engine/circuit.js?v=5';
 import { formatValue } from '../engine/components.js';
-import { buildCircuitFromText } from './circuitBuilder.js?v=2';
+import { buildCircuitFromText } from './circuitBuilder.js?v=3';
 
 let messages = [];
 
