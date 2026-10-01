@@ -993,9 +993,9 @@ export function buildFromDescription(text) {
   const res = buildCircuitFromText(req);
   if (res.ok) {
     loadExperimentSetup(res.setup);
-    if (msg) msg.innerHTML = `<span class="text-success">Built ${res.title}.</span> <span class="text-muted">${res.explanation}</span>`;
+    if (msg) msg.innerHTML = `<button class="buildmsg-x" onclick="this.parentElement.innerHTML=''" title="Dismiss">×</button><span class="text-success">Built ${res.title}.</span> <span class="text-muted">${res.explanation}</span>`;
   } else {
-    if (msg) msg.innerHTML = `<span class="text-danger">${res.error}</span><br><span class="text-muted">${res.suggestions}</span>`;
+    if (msg) msg.innerHTML = `<button class="buildmsg-x" onclick="this.parentElement.innerHTML=''" title="Dismiss">×</button><span class="text-danger">${res.error}</span><br><span class="text-muted">${res.suggestions}</span>`;
   }
   return res;
 }
