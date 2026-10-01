@@ -2,7 +2,7 @@
 // Reads simulation state, experiment progress, and skill graph to guide students.
 
 import { getState, getSkillLevel, getIntuitionAccuracy, recordPrediction, addDiscovery } from '../state.js';
-import { getDCSolution, getComponents, getWires, getProbes, getSimErrors, getFaultState, getCurrentExperiment, getHintLevel, setHintLevel, loadExperimentSetup } from './simulator.js?v=9';
+import { getDCSolution, getComponents, getWires, getProbes, getSimErrors, getFaultState, getCurrentExperiment, getHintLevel, setHintLevel, appendExperimentSetup } from './simulator.js?v=10';
 import { buildNetlist } from '../engine/circuit.js?v=5';
 import { formatValue } from '../engine/components.js';
 import { buildCircuitFromText } from './circuitBuilder.js?v=2';
@@ -151,9 +151,9 @@ function generateResponse(query) {
 function handleBuildRequest(query) {
   const res = buildCircuitFromText(query);
   if (!res.ok) return res.error + ' ' + res.suggestions;
-  loadExperimentSetup(res.setup);
-  addDiscovery(`Built ${res.title} from description`);
-  return `Done — I built the ${res.title} in your simulator. ${res.explanation} Open the Simulator tab to see it glow.`;
+  appendExperimentSetup(res.setup);
+  addDiscovery(`Added ${res.title} from description`);
+  return `Done — I added the ${res.title} to your current circuit. ${res.explanation} Open the Simulator tab to see it.`;
 }
 
 function getProgressiveHint(exp, level) {

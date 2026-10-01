@@ -492,7 +492,7 @@ export async function setViewMode(mode) {
     if (c2d) c2d.style.display = 'none';
     if (c3d) {
       c3d.style.display = 'block';
-      if (!sim3dMod) sim3dMod = await import('./sim3d.js');
+      if (!sim3dMod) sim3dMod = await import('./sim3d.js?v=2');
       sim3dMod.start3D(c3d);
     }
   } else {
@@ -992,8 +992,8 @@ export function buildFromDescription(text) {
   if (!req) return { ok: false };
   const res = buildCircuitFromText(req);
   if (res.ok) {
-    loadExperimentSetup(res.setup);
-    if (msg) msg.innerHTML = `<button class="buildmsg-x" onclick="this.parentElement.innerHTML=''" title="Dismiss">×</button><span class="text-success">Built ${res.title}.</span> <span class="text-muted">${res.explanation}</span>`;
+    appendExperimentSetup(res.setup);
+    if (msg) msg.innerHTML = `<button class="buildmsg-x" onclick="this.parentElement.innerHTML=''" title="Dismiss">×</button><span class="text-success">Added ${res.title} to your circuit.</span> <span class="text-muted">${res.explanation}</span>`;
   } else {
     if (msg) msg.innerHTML = `<button class="buildmsg-x" onclick="this.parentElement.innerHTML=''" title="Dismiss">×</button><span class="text-danger">${res.error}</span><br><span class="text-muted">${res.suggestions}</span>`;
   }
@@ -1025,6 +1025,34 @@ export function loadExperimentSetup(setup) {
   wires = structuredClone(setup.wires);
   selectedComp = null; probes = { red: null, black: null };
   dcSolution = null; transientData = null;
+  runSimulation(); saveSimState(); render();
+}
+
+export function appendExperimentSetup(setup) {
+  // Add a built setup INTO the live circuit instead of replacing it:
+  // fresh ids (no collisions) + shifted right of existing parts.
+  const data = structuredClone(setup);
+  for (const c of data.components) {
+    c.id = `${c.type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  }
+  for (const w of data.wires) {
+    w.id = `w_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  }
+  if (components.length > 0 || wires.length > 0) {
+    let maxX = -Infinity;
+    for (const c of components) maxX = Math.max(maxX, c.x);
+    for (const w of wires) for (const p of w.points) maxX = Math.max(maxX, p.x);
+    let minNX = Infinity;
+    for (const c of data.components) minNX = Math.min(minNX, c.x);
+    for (const w of data.wires) for (const p of w.points) minNX = Math.min(minNX, p.x);
+    const dx = (maxX + 160) - minNX;
+    for (const c of data.components) c.x += dx;
+    for (const w of data.wires) for (const p of w.points) p.x += dx;
+  }
+  components.push(...data.components);
+  wires.push(...data.wires);
+  selectedComp = data.components[0] || selectedComp;
+  probes = { red: null, black: null };
   runSimulation(); saveSimState(); render();
 }
 
